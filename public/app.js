@@ -964,13 +964,8 @@ document.getElementById('reportSelectMonth')?.addEventListener('change', (e) => 
 });
 document.getElementById('reportFilterTeam')?.addEventListener('change', renderReportsView);
 
-// XUẤT EXCEL CHUYÊN NGHIỆP QUA SHEETJS
-document.getElementById('btnExportExcel')?.addEventListener('click', () => {
-  if (typeof XLSX === 'undefined') {
-    showToast('Thư viện Excel đang tải, vui lòng thử lại sau 2 giây', 'error');
-    return;
-  }
-
+// XUẤT EXCEL CHUYÊN NGHIỆP CHUẨN IN ẤN & KẾ TOÁN (EXCELJS + SHEETJS FALLBACK)
+document.getElementById('btnExportExcel')?.addEventListener('click', async () => {
   const selectedMonth = document.getElementById('reportSelectMonth')?.value || state.selectedMonth;
   const [yearStr, monthStr] = selectedMonth.split('-');
   const year = parseInt(yearStr);
@@ -980,19 +975,503 @@ document.getElementById('btnExportExcel')?.addEventListener('click', () => {
   const monthAttendance = state.attendance.filter(a => a.date && a.date.startsWith(selectedMonth));
   const monthAdvances = state.advances.filter(adv => adv.date && adv.date.startsWith(selectedMonth));
 
-  // Sheet 1: Bảng Ma Trận Chấm Công
-  const matrixHeaders = ['STT', 'Đội Khoán', 'Đại Diện', 'Đơn Giá'];
-  for (let d = 1; d <= daysInMonth; d++) {
-    matrixHeaders.push(`Ngày ${d}`);
+  // Max width calculation for dynamic fit
+  let maxTeamLen = 22;
+  let maxLeaderLen = 14;
+  state.teams.forEach(t => {
+    if (t.name && t.name.length > maxTeamLen) maxTeamLen = t.name.length;
+    if (t.leader && t.leader.length > maxLeaderLen) maxLeaderLen = t.leader.length;
+  });
+
+  // PHƯƠNG ÁN CHÍNH: EXCELJS (CHUẨN IN ẤN 1B - VIỀN NÉT MẢNH, ĐỊNH DẠNG SỐ, CHỮ KÝ 2B)
+  if (typeof ExcelJS !== 'undefined') {
+    try {
+      const workbook = new ExcelJS.Workbook();
+      workbook.creator = 'Chấm công đội_HIREE';
+      workbook.created = new Date();
+
+      const thinBorder = {
+        top: { style: 'thin', color: { argb: 'FF000000' } },
+        left: { style: 'thin', color: { argb: 'FF000000' } },
+        bottom: { style: 'thin', color: { argb: 'FF000000' } },
+        right: { style: 'thin', color: { argb: 'FF000000' } }
+      };
+      const doubleBottomBorder = {
+        top: { style: 'thin', color: { argb: 'FF000000' } },
+        left: { style: 'thin', color: { argb: 'FF000000' } },
+        bottom: { style: 'double', color: { argb: 'FF000000' } },
+        right: { style: 'thin', color: { argb: 'FF000000' } }
+      };
+      const headerFill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFF2F4F7' } // Tối giản, thanh lịch, chuẩn in ấn A4
+      };
+
+      // ----------------------------------------------------
+      // SHEET 1: BẢNG CHẤM CÔNG CHI TIẾT
+      // ----------------------------------------------------
+      const ws1 = workbook.addWorksheet('Bang_Cham_Cong', {
+        pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 }
+      });
+
+      const totalCols1 = 4 + daysInMonth + 3;
+
+      // Tiêu đề 1
+      ws1.mergeCells(1, 1, 1, totalCols1);
+      const titleRow1 = ws1.getCell(1, 1);
+      titleRow1.value = `BẢNG CHẤM CÔNG ĐỘI KHOÁN - THÁNG ${monthStr}/${yearStr}`;
+      titleRow1.font = { name: 'Times New Roman', size: 16, bold: true, color: { argb: 'FF000000' } };
+      titleRow1.alignment = { vertical: 'middle', horizontal: 'center' };
+      ws1.getRow(1).height = 30;
+
+      // Tiêu đề 2 (Thông tin đơn vị / dự án)
+      ws1.mergeCells(2, 1, 2, totalCols1);
+      const titleRow2 = ws1.getCell(2, 1);
+      titleRow2.value = `Đơn vị: ${state.settings.companyName || 'Chấm công đội_HIREE'}   |   Dự án: ${state.settings.projectName || 'Chấm công đội_HIREE'}`;
+      titleRow2.font = { name: 'Times New Roman', size: 11, italic: true };
+      titleRow2.alignment = { vertical: 'middle', horizontal: 'center' };
+      ws1.getRow(2).height = 20;
+
+      // Dòng 3 trống
+      ws1.getRow(3).height = 8;
+
+      // Dòng 4: Header cột
+      const headerRow4 = ws1.getRow(4);
+      headerRow4.height = 28;
+      const colHeaders1 = ['STT', 'Đội Khoán', 'Đại Diện', 'Đơn Giá (đ)'];
+      for (let d = 1; d <= daysInMonth; d++) {
+        colHeaders1.push(`N${d}`);
+      }
+      colHeaders1.push('Tổng Công', 'Tổng OT (h)', 'Thành Tiền (đ)');
+
+      colHeaders1.forEach((val, idx) => {
+        const cell = headerRow4.getCell(idx + 1);
+        cell.value = val;
+        cell.font = { name: 'Times New Roman', size: 10, bold: true };
+        cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+        cell.fill = headerFill;
+        cell.border = thinBorder;
+      });
+
+      // Dữ liệu từng đội
+      let rowIdx = 5;
+      let grandTotalDays = 0;
+      let grandTotalOt = 0;
+      let grandTotalAmount = 0;
+      const colDayTotals = new Array(daysInMonth).fill(0);
+
+      state.teams.forEach((team, tIdx) => {
+        const row = ws1.getRow(rowIdx);
+        row.height = 22;
+
+        let tDays = 0;
+        let tOt = 0;
+        let tAmount = 0;
+
+        // Cột 1: STT
+        const cellSTT = row.getCell(1);
+        cellSTT.value = tIdx + 1;
+        cellSTT.alignment = { vertical: 'middle', horizontal: 'center' };
+        cellSTT.border = thinBorder;
+        cellSTT.font = { name: 'Times New Roman', size: 10 };
+
+        // Cột 2: Đội Khoán
+        const cellTeam = row.getCell(2);
+        cellTeam.value = team.name;
+        cellTeam.alignment = { vertical: 'middle', horizontal: 'left' };
+        cellTeam.border = thinBorder;
+        cellTeam.font = { name: 'Times New Roman', size: 10, bold: true };
+
+        // Cột 3: Đại Diện
+        const cellLeader = row.getCell(3);
+        cellLeader.value = team.leader || '';
+        cellLeader.alignment = { vertical: 'middle', horizontal: 'left' };
+        cellLeader.border = thinBorder;
+        cellLeader.font = { name: 'Times New Roman', size: 10 };
+
+        // Cột 4: Đơn Giá
+        const cellRate = row.getCell(4);
+        cellRate.value = team.defaultRate || 0;
+        cellRate.numFmt = '#,##0';
+        cellRate.alignment = { vertical: 'middle', horizontal: 'right' };
+        cellRate.border = thinBorder;
+        cellRate.font = { name: 'Times New Roman', size: 10 };
+
+        // Cột Ngày
+        for (let d = 1; d <= daysInMonth; d++) {
+          const dayStr = `${selectedMonth}-${String(d).padStart(2, '0')}`;
+          const rec = monthAttendance.find(a => a.date === dayStr && a.teamId === team.id);
+          const cellDay = row.getCell(4 + d);
+          cellDay.border = thinBorder;
+          cellDay.alignment = { vertical: 'middle', horizontal: 'center' };
+          cellDay.font = { name: 'Times New Roman', size: 10 };
+
+          if (rec && (rec.totalWorkDays > 0 || rec.otHours > 0)) {
+            tDays += (rec.totalWorkDays || 0);
+            tOt += (rec.otHours || 0);
+            tAmount += (rec.totalAmount || 0);
+            cellDay.value = rec.totalWorkDays || '';
+            if (rec.totalWorkDays > 0) cellDay.font = { name: 'Times New Roman', size: 10, bold: true };
+            colDayTotals[d - 1] += (rec.totalWorkDays || 0);
+          } else {
+            cellDay.value = '';
+          }
+        }
+
+        // Cột Tổng Công
+        const cellTotDays = row.getCell(4 + daysInMonth + 1);
+        cellTotDays.value = tDays;
+        cellTotDays.alignment = { vertical: 'middle', horizontal: 'center' };
+        cellTotDays.border = thinBorder;
+        cellTotDays.font = { name: 'Times New Roman', size: 10, bold: true };
+
+        // Cột Tổng OT
+        const cellTotOt = row.getCell(4 + daysInMonth + 2);
+        cellTotOt.value = tOt;
+        cellTotOt.alignment = { vertical: 'middle', horizontal: 'center' };
+        cellTotOt.border = thinBorder;
+        cellTotOt.font = { name: 'Times New Roman', size: 10 };
+
+        // Cột Thành Tiền
+        const cellTotAmt = row.getCell(4 + daysInMonth + 3);
+        cellTotAmt.value = tAmount;
+        cellTotAmt.numFmt = '#,##0';
+        cellTotAmt.alignment = { vertical: 'middle', horizontal: 'right' };
+        cellTotAmt.border = thinBorder;
+        cellTotAmt.font = { name: 'Times New Roman', size: 10, bold: true };
+
+        grandTotalDays += tDays;
+        grandTotalOt += tOt;
+        grandTotalAmount += tAmount;
+        rowIdx++;
+      });
+
+      // DÒNG TỔNG CỘNG TOÀN CÔNG TRƯỜNG
+      const totRow = ws1.getRow(rowIdx);
+      totRow.height = 24;
+      ws1.mergeCells(rowIdx, 1, rowIdx, 4);
+      const cellTotLabel = totRow.getCell(1);
+      cellTotLabel.value = 'TỔNG CỘNG TOÀN CÔNG TRƯỜNG';
+      cellTotLabel.font = { name: 'Times New Roman', size: 10, bold: true };
+      cellTotLabel.alignment = { vertical: 'middle', horizontal: 'center' };
+
+      for (let c = 1; c <= 4; c++) {
+        totRow.getCell(c).border = doubleBottomBorder;
+        totRow.getCell(c).fill = headerFill;
+      }
+
+      for (let d = 1; d <= daysInMonth; d++) {
+        const cCell = totRow.getCell(4 + d);
+        cCell.value = colDayTotals[d - 1] || '';
+        cCell.font = { name: 'Times New Roman', size: 10, bold: true };
+        cCell.alignment = { vertical: 'middle', horizontal: 'center' };
+        cCell.border = doubleBottomBorder;
+        cCell.fill = headerFill;
+      }
+
+      const cellGrandDays = totRow.getCell(4 + daysInMonth + 1);
+      cellGrandDays.value = grandTotalDays;
+      cellGrandDays.font = { name: 'Times New Roman', size: 10, bold: true };
+      cellGrandDays.alignment = { vertical: 'middle', horizontal: 'center' };
+      cellGrandDays.border = doubleBottomBorder;
+      cellGrandDays.fill = headerFill;
+
+      const cellGrandOt = totRow.getCell(4 + daysInMonth + 2);
+      cellGrandOt.value = grandTotalOt;
+      cellGrandOt.font = { name: 'Times New Roman', size: 10, bold: true };
+      cellGrandOt.alignment = { vertical: 'middle', horizontal: 'center' };
+      cellGrandOt.border = doubleBottomBorder;
+      cellGrandOt.fill = headerFill;
+
+      const cellGrandAmt = totRow.getCell(4 + daysInMonth + 3);
+      cellGrandAmt.value = grandTotalAmount;
+      cellGrandAmt.numFmt = '#,##0';
+      cellGrandAmt.font = { name: 'Times New Roman', size: 10, bold: true };
+      cellGrandAmt.alignment = { vertical: 'middle', horizontal: 'right' };
+      cellGrandAmt.border = doubleBottomBorder;
+      cellGrandAmt.fill = headerFill;
+
+      // Khoảng cách đến khối chữ ký
+      rowIdx += 2;
+
+      // Dòng ngày tháng xuất bảng
+      const today = new Date();
+      const dateStr = `Đà Lạt, ngày ${today.getDate()} tháng ${today.getMonth() + 1} năm ${today.getFullYear()}`;
+      ws1.mergeCells(rowIdx, totalCols1 - 5, rowIdx, totalCols1);
+      const cellSignDate = ws1.getCell(rowIdx, totalCols1 - 5);
+      cellSignDate.value = dateStr;
+      cellSignDate.font = { name: 'Times New Roman', size: 10, italic: true };
+      cellSignDate.alignment = { vertical: 'middle', horizontal: 'center' };
+      rowIdx++;
+
+      // KHỐI CHỮ KÝ 2 BÊN (LỰA CHỌN 2B)
+      ws1.mergeCells(rowIdx, 2, rowIdx, 4);
+      const cellLeftTitle = ws1.getCell(rowIdx, 2);
+      cellLeftTitle.value = 'ĐẠI DIỆN ĐỘI KHOÁN';
+      cellLeftTitle.font = { name: 'Times New Roman', size: 11, bold: true };
+      cellLeftTitle.alignment = { vertical: 'middle', horizontal: 'center' };
+
+      ws1.mergeCells(rowIdx, totalCols1 - 4, rowIdx, totalCols1);
+      const cellRightTitle = ws1.getCell(rowIdx, totalCols1 - 4);
+      cellRightTitle.value = 'NGƯỜI LẬP BẢNG';
+      cellRightTitle.font = { name: 'Times New Roman', size: 11, bold: true };
+      cellRightTitle.alignment = { vertical: 'middle', horizontal: 'center' };
+      rowIdx++;
+
+      ws1.mergeCells(rowIdx, 2, rowIdx, 4);
+      const cellLeftNote = ws1.getCell(rowIdx, 2);
+      cellLeftNote.value = '(Ký, ghi rõ họ tên)';
+      cellLeftNote.font = { name: 'Times New Roman', size: 9, italic: true };
+      cellLeftNote.alignment = { vertical: 'middle', horizontal: 'center' };
+
+      ws1.mergeCells(rowIdx, totalCols1 - 4, rowIdx, totalCols1);
+      const cellRightNote = ws1.getCell(rowIdx, totalCols1 - 4);
+      cellRightNote.value = '(Ký, ghi rõ họ tên)';
+      cellRightNote.font = { name: 'Times New Roman', size: 9, italic: true };
+      cellRightNote.alignment = { vertical: 'middle', horizontal: 'center' };
+
+      // Tự động căn chỉnh độ rộng cột (Auto-fit Widths)
+      ws1.getColumn(1).width = 6;
+      ws1.getColumn(2).width = Math.min(Math.max(maxTeamLen + 4, 32), 48);
+      ws1.getColumn(3).width = Math.min(Math.max(maxLeaderLen + 4, 18), 30);
+      ws1.getColumn(4).width = 14;
+
+      for (let d = 1; d <= daysInMonth; d++) {
+        ws1.getColumn(4 + d).width = 5.2;
+      }
+      ws1.getColumn(4 + daysInMonth + 1).width = 11;
+      ws1.getColumn(4 + daysInMonth + 2).width = 11;
+      ws1.getColumn(4 + daysInMonth + 3).width = 16;
+
+      // ----------------------------------------------------
+      // SHEET 2: BẢNG TỔNG HỢP THANH TOÁN TIỀN KHOÁN
+      // ----------------------------------------------------
+      const ws2 = workbook.addWorksheet('Tong_Hop_Thanh_Toan', {
+        pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 }
+      });
+
+      const totalCols2 = 10;
+      ws2.mergeCells(1, 1, 1, totalCols2);
+      const t2Title1 = ws2.getCell(1, 1);
+      t2Title1.value = `BẢNG TỔNG HỢP THANH TOÁN TIỀN KHOÁN - THÁNG ${monthStr}/${yearStr}`;
+      t2Title1.font = { name: 'Times New Roman', size: 16, bold: true };
+      t2Title1.alignment = { vertical: 'middle', horizontal: 'center' };
+      ws2.getRow(1).height = 30;
+
+      ws2.mergeCells(2, 1, 2, totalCols2);
+      const t2Title2 = ws2.getCell(2, 1);
+      t2Title2.value = `Đơn vị: ${state.settings.companyName || 'Chấm công đội_HIREE'}   |   Dự án: ${state.settings.projectName || 'Chấm công đội_HIREE'}`;
+      t2Title2.font = { name: 'Times New Roman', size: 11, italic: true };
+      t2Title2.alignment = { vertical: 'middle', horizontal: 'center' };
+      ws2.getRow(2).height = 20;
+
+      ws2.getRow(3).height = 8;
+
+      const headerRow2 = ws2.getRow(4);
+      headerRow2.height = 28;
+      const colHeaders2 = [
+        'STT',
+        'Đội Khoán',
+        'Người Đại Diện',
+        'Số Điện Thoại',
+        'Đơn Giá/Công (đ)',
+        'Tổng Công',
+        'Tổng OT (h)',
+        'Tổng Tiền Công (đ)',
+        'Đã Tạm Ứng (đ)',
+        'Còn Lại Phải Trả (đ)'
+      ];
+
+      colHeaders2.forEach((val, idx) => {
+        const cell = headerRow2.getCell(idx + 1);
+        cell.value = val;
+        cell.font = { name: 'Times New Roman', size: 10, bold: true };
+        cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+        cell.fill = headerFill;
+        cell.border = thinBorder;
+      });
+
+      let sRowIdx = 5;
+      let sumTotDays = 0;
+      let sumTotOt = 0;
+      let sumTotAmount = 0;
+      let sumTotAdvance = 0;
+      let sumTotRemaining = 0;
+
+      state.teams.forEach((team, idx) => {
+        const teamAtt = monthAttendance.filter(a => a.teamId === team.id);
+        const teamAdv = monthAdvances.filter(adv => adv.teamId === team.id);
+
+        let tDays = 0;
+        let tOt = 0;
+        let tAmount = 0;
+        let tAdvance = 0;
+
+        teamAtt.forEach(a => {
+          tDays += (a.totalWorkDays || 0);
+          tOt += (a.otHours || 0);
+          tAmount += (a.totalAmount || 0);
+        });
+
+        teamAdv.forEach(adv => {
+          tAdvance += (adv.amount || 0);
+        });
+
+        const tRemaining = tAmount - tAdvance;
+
+        const row = ws2.getRow(sRowIdx);
+        row.height = 22;
+
+        const cellData = [
+          { val: idx + 1, align: 'center', bold: false },
+          { val: team.name, align: 'left', bold: true },
+          { val: team.leader || '', align: 'left', bold: false },
+          { val: team.phone || '', align: 'center', bold: false },
+          { val: team.defaultRate || 0, align: 'right', fmt: '#,##0' },
+          { val: tDays, align: 'center', bold: true },
+          { val: tOt, align: 'center', bold: false },
+          { val: tAmount, align: 'right', fmt: '#,##0', bold: true },
+          { val: tAdvance, align: 'right', fmt: '#,##0' },
+          { val: tRemaining, align: 'right', fmt: '#,##0', bold: true }
+        ];
+
+        cellData.forEach((d, cIdx) => {
+          const cell = row.getCell(cIdx + 1);
+          cell.value = d.val;
+          cell.border = thinBorder;
+          cell.font = { name: 'Times New Roman', size: 10, bold: !!d.bold };
+          cell.alignment = { vertical: 'middle', horizontal: d.align };
+          if (d.fmt) cell.numFmt = d.fmt;
+        });
+
+        sumTotDays += tDays;
+        sumTotOt += tOt;
+        sumTotAmount += tAmount;
+        sumTotAdvance += tAdvance;
+        sumTotRemaining += tRemaining;
+        sRowIdx++;
+      });
+
+      // DÒNG TỔNG CỘNG CHO SHEET 2
+      const totRow2 = ws2.getRow(sRowIdx);
+      totRow2.height = 24;
+      ws2.mergeCells(sRowIdx, 1, sRowIdx, 5);
+      const cellTot2Label = totRow2.getCell(1);
+      cellTot2Label.value = 'TỔNG CỘNG TOÀN CÔNG TRƯỜNG';
+      cellTot2Label.font = { name: 'Times New Roman', size: 10, bold: true };
+      cellTot2Label.alignment = { vertical: 'middle', horizontal: 'center' };
+
+      for (let c = 1; c <= 5; c++) {
+        totRow2.getCell(c).border = doubleBottomBorder;
+        totRow2.getCell(c).fill = headerFill;
+      }
+
+      const totColsValues = [
+        { col: 6, val: sumTotDays, align: 'center' },
+        { col: 7, val: sumTotOt, align: 'center' },
+        { col: 8, val: sumTotAmount, align: 'right', fmt: '#,##0' },
+        { col: 9, val: sumTotAdvance, align: 'right', fmt: '#,##0' },
+        { col: 10, val: sumTotRemaining, align: 'right', fmt: '#,##0' }
+      ];
+
+      totColsValues.forEach(tc => {
+        const cell = totRow2.getCell(tc.col);
+        cell.value = tc.val;
+        cell.font = { name: 'Times New Roman', size: 10, bold: true };
+        cell.alignment = { vertical: 'middle', horizontal: tc.align };
+        cell.border = doubleBottomBorder;
+        cell.fill = headerFill;
+        if (tc.fmt) cell.numFmt = tc.fmt;
+      });
+
+      // Khối chữ ký Sheet 2 (Lựa chọn 2B)
+      sRowIdx += 2;
+      ws2.mergeCells(sRowIdx, 7, sRowIdx, 10);
+      const cellSignDate2 = ws2.getCell(sRowIdx, 7);
+      cellSignDate2.value = dateStr;
+      cellSignDate2.font = { name: 'Times New Roman', size: 10, italic: true };
+      cellSignDate2.alignment = { vertical: 'middle', horizontal: 'center' };
+      sRowIdx++;
+
+      ws2.mergeCells(sRowIdx, 2, sRowIdx, 4);
+      const c2LeftTitle = ws2.getCell(sRowIdx, 2);
+      c2LeftTitle.value = 'ĐẠI DIỆN ĐỘI KHOÁN';
+      c2LeftTitle.font = { name: 'Times New Roman', size: 11, bold: true };
+      c2LeftTitle.alignment = { vertical: 'middle', horizontal: 'center' };
+
+      ws2.mergeCells(sRowIdx, 7, sRowIdx, 10);
+      const c2RightTitle = ws2.getCell(sRowIdx, 7);
+      c2RightTitle.value = 'NGƯỜI LẬP BẢNG';
+      c2RightTitle.font = { name: 'Times New Roman', size: 11, bold: true };
+      c2RightTitle.alignment = { vertical: 'middle', horizontal: 'center' };
+      sRowIdx++;
+
+      ws2.mergeCells(sRowIdx, 2, sRowIdx, 4);
+      const c2LeftNote = ws2.getCell(sRowIdx, 2);
+      c2LeftNote.value = '(Ký, ghi rõ họ tên)';
+      c2LeftNote.font = { name: 'Times New Roman', size: 9, italic: true };
+      c2LeftNote.alignment = { vertical: 'middle', horizontal: 'center' };
+
+      ws2.mergeCells(sRowIdx, 7, sRowIdx, 10);
+      const c2RightNote = ws2.getCell(sRowIdx, 7);
+      c2RightNote.value = '(Ký, ghi rõ họ tên)';
+      c2RightNote.font = { name: 'Times New Roman', size: 9, italic: true };
+      c2RightNote.alignment = { vertical: 'middle', horizontal: 'center' };
+
+      // Set column widths Sheet 2
+      ws2.getColumn(1).width = 6;
+      ws2.getColumn(2).width = Math.min(Math.max(maxTeamLen + 4, 32), 48);
+      ws2.getColumn(3).width = Math.min(Math.max(maxLeaderLen + 4, 18), 30);
+      ws2.getColumn(4).width = 15;
+      ws2.getColumn(5).width = 16;
+      ws2.getColumn(6).width = 12;
+      ws2.getColumn(7).width = 12;
+      ws2.getColumn(8).width = 18;
+      ws2.getColumn(9).width = 16;
+      ws2.getColumn(10).width = 18;
+
+      // Xuất file tải về
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const fileName = `Bang_Cham_Cong_Doi_Khoan_${selectedMonth}.xlsx`;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      showToast(`Đã xuất file Excel chuẩn in ấn A4: ${fileName}`, 'success');
+      return;
+    } catch (err) {
+      console.error('Lỗi xuất ExcelJS, chuyển sang fallback SheetJS:', err);
+    }
   }
-  matrixHeaders.push('Tổng Công', 'Tổng OT (h)', 'Thành Tiền (VNĐ)');
+
+  // PHƯƠNG ÁN DỰ PHÒNG: SHEETJS NẾU CHƯA CÓ EXCELJS
+  if (typeof XLSX === 'undefined') {
+    showToast('Thư viện Excel đang tải, vui lòng thử lại sau 2 giây', 'error');
+    return;
+  }
+
+  const matrixHeaders = ['STT', 'Đội Khoán', 'Đại Diện', 'Đơn Giá (đ)'];
+  for (let d = 1; d <= daysInMonth; d++) {
+    matrixHeaders.push(`N${d}`);
+  }
+  matrixHeaders.push('Tổng Công', 'Tổng OT (h)', 'Thành Tiền (đ)');
 
   const matrixRows = [
     [`BẢNG CHẤM CÔNG ĐỘI KHOÁN - THÁNG ${selectedMonth}`],
-    [`Dự án: ${state.settings.projectName || 'Công Trường Đà Lạt'}`],
-    [], // Dòng trống
+    [`Dự án: ${state.settings.projectName || 'Chấm công đội_HIREE'}`],
+    [],
     matrixHeaders
   ];
+
+  let sumDaysFallback = 0;
+  let sumOtFallback = 0;
+  let sumAmtFallback = 0;
 
   state.teams.forEach((team, idx) => {
     const row = [idx + 1, team.name, team.leader || '', team.defaultRate || 0];
@@ -1015,13 +1494,22 @@ document.getElementById('btnExportExcel')?.addEventListener('click', () => {
 
     row.push(tDays, tOt, tAmount);
     matrixRows.push(row);
+    sumDaysFallback += tDays;
+    sumOtFallback += tOt;
+    sumAmtFallback += tAmount;
   });
 
-  // Sheet 2: Bảng Tổng Hợp Thanh Toán
+  // Total row fallback
+  const fallbackTotRow = ['TỔNG CỘNG', '', '', ''];
+  for (let d = 1; d <= daysInMonth; d++) fallbackTotRow.push('');
+  fallbackTotRow.push(sumDaysFallback, sumOtFallback, sumAmtFallback);
+  matrixRows.push(fallbackTotRow);
+
+  // Sheet 2 Fallback
   const summaryHeaders = ['STT', 'Đội Khoán', 'Người Đại Diện', 'SĐT', 'Đơn Giá/Công', 'Tổng Công', 'Tổng OT', 'Tổng Tiền Công', 'Đã Tạm Ứng', 'Còn Lại Phải Trả'];
   const summaryRows = [
     [`BẢNG TỔNG HỢP THANH TOÁN TIỀN KHOÁN - THÁNG ${selectedMonth}`],
-    [`Đơn vị: ${state.settings.companyName || 'Ban Chỉ Huy'}`],
+    [`Đơn vị: ${state.settings.companyName || 'Chấm công đội_HIREE'}`],
     [],
     summaryHeaders
   ];
@@ -1029,47 +1517,39 @@ document.getElementById('btnExportExcel')?.addEventListener('click', () => {
   state.teams.forEach((team, idx) => {
     const teamAtt = monthAttendance.filter(a => a.teamId === team.id);
     const teamAdv = monthAdvances.filter(adv => adv.teamId === team.id);
-
-    let tDays = 0;
-    let tOt = 0;
-    let tAmount = 0;
-    let tAdvance = 0;
-
+    let tDays = 0, tOt = 0, tAmount = 0, tAdvance = 0;
     teamAtt.forEach(a => {
       tDays += (a.totalWorkDays || 0);
       tOt += (a.otHours || 0);
       tAmount += (a.totalAmount || 0);
     });
-
     teamAdv.forEach(adv => {
       tAdvance += (adv.amount || 0);
     });
-
-    const tRemaining = tAmount - tAdvance;
-
     summaryRows.push([
-      idx + 1,
-      team.name,
-      team.leader || '',
-      team.phone || '',
-      team.defaultRate || 0,
-      tDays,
-      tOt,
-      tAmount,
-      tAdvance,
-      tRemaining
+      idx + 1, team.name, team.leader || '', team.phone || '',
+      team.defaultRate || 0, tDays, tOt, tAmount, tAdvance, tAmount - tAdvance
     ]);
   });
 
-  // Tạo Workbook
   const wb = XLSX.utils.book_new();
   const wsMatrix = XLSX.utils.aoa_to_sheet(matrixRows);
   const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows);
 
+  // Set auto columns in SheetJS
+  const colW1 = [{ wch: 6 }, { wch: Math.max(maxTeamLen + 4, 32) }, { wch: Math.max(maxLeaderLen + 4, 18) }, { wch: 14 }];
+  for (let d = 1; d <= daysInMonth; d++) colW1.push({ wch: 6 });
+  colW1.push({ wch: 12 }, { wch: 12 }, { wch: 18 });
+  wsMatrix['!cols'] = colW1;
+
+  wsSummary['!cols'] = [
+    { wch: 6 }, { wch: Math.max(maxTeamLen + 4, 32) }, { wch: Math.max(maxLeaderLen + 4, 18) },
+    { wch: 15 }, { wch: 16 }, { wch: 12 }, { wch: 12 }, { wch: 18 }, { wch: 16 }, { wch: 18 }
+  ];
+
   XLSX.utils.book_append_sheet(wb, wsMatrix, 'Bang_Cham_Cong');
   XLSX.utils.book_append_sheet(wb, wsSummary, 'Tong_Hop_Thanh_Toan');
 
-  // Tải file về
   const fileName = `Bang_Cham_Cong_Doi_Khoan_${selectedMonth}.xlsx`;
   XLSX.writeFile(wb, fileName);
   showToast(`Đã xuất file Excel: ${fileName}`, 'success');
