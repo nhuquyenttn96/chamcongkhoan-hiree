@@ -44,7 +44,7 @@
         <div>
           <h1 class="text-lg md:text-xl font-bold tracking-tight flex items-center gap-2">
             Chấm công đội_HIREE
-            <span class="text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 px-2 py-0.5 rounded-full">v3.3</span>
+            <span class="text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 px-2 py-0.5 rounded-full">v3.4</span>
           </h1>
           <p id="topProjectName" class="text-xs text-blue-200">Chấm công đội_HIREE • Quản lý công nhật & đội khoán</p>
         </div>
@@ -307,14 +307,18 @@
           </div>
         </div>
 
-        <div class="flex items-center gap-2">
-          <button id="btnExportExcel" class="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-lg shadow transition text-xs md:text-sm">
+        <div class="flex flex-wrap items-center gap-2">
+          <button id="btnExportExcel" class="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-2 rounded-lg shadow transition text-xs md:text-sm">
             <i data-lucide="file-spreadsheet" class="w-4 h-4"></i>
-            <span>XUẤT LỊCH CÔNG & THANH TOÁN (.XLSX)</span>
+            <span>XUẤT EXCEL LỊCH THÁNG</span>
           </button>
-          <button id="btnPrintReport" class="flex items-center gap-2 bg-slate-700 hover:bg-slate-800 text-white font-bold px-4 py-2 rounded-lg shadow transition text-xs md:text-sm">
-            <i data-lucide="printer" class="w-4 h-4"></i>
-            <span>IN BẢNG CÔNG</span>
+          <button id="btnPrintSettlement" class="flex items-center gap-1.5 bg-blue-700 hover:bg-blue-800 text-white font-bold px-3 py-2 rounded-lg shadow transition text-xs md:text-sm">
+            <i data-lucide="receipt" class="w-4 h-4"></i>
+            <span>IN QUYẾT TOÁN TIỀN (A4 DỌC)</span>
+          </button>
+          <button id="btnPrintMatrix" class="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-900 text-white font-bold px-3 py-2 rounded-lg shadow transition text-xs md:text-sm">
+            <i data-lucide="calendar" class="w-4 h-4"></i>
+            <span>IN BẢNG CÔNG 30 NGÀY (A4 NGANG)</span>
           </button>
         </div>
       </div>
@@ -752,6 +756,132 @@
   <div id="toast" class="fixed bottom-6 right-6 z-50 transform translate-y-24 opacity-0 transition-all duration-300 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-xl flex items-center gap-3 border border-slate-700 text-xs md:text-sm">
     <i id="toastIcon" data-lucide="check-circle" class="w-5 h-5 text-emerald-400"></i>
     <span id="toastMsg">Thao tác thành công</span>
+  </div>
+
+  <!-- ======================================================== -->
+  <!-- KHUNG IN CHUYÊN NGHIỆP: QUYẾT TOÁN TIỀN (A4 DỌC) -->
+  <!-- ======================================================== -->
+  <div id="printAreaSettlement" class="hidden print-container print-portrait">
+    <div class="print-header flex justify-between items-start pb-2 border-b-2 border-gray-800">
+      <div>
+        <h4 class="font-bold text-xs uppercase tracking-wide text-gray-800">CÔNG TY TNHH HIREE</h4>
+        <p class="text-[11px] text-gray-600">Dự Án / Công Trình: <span class="font-semibold text-gray-800">ĐÀ LẠT</span></p>
+      </div>
+      <div class="text-right">
+        <p class="text-[11px] text-gray-600">Ngày in: <span id="printSettlementDate" class="font-medium text-gray-800"></span></p>
+        <p class="text-[10px] text-gray-500 italic">Hệ thống: Chấm công đội_HIREE</p>
+      </div>
+    </div>
+
+    <div class="text-center my-4">
+      <h2 class="text-base md:text-lg font-black uppercase text-gray-900 tracking-wider">BẢNG QUYẾT TOÁN TIỀN KHOÁN CÔNG TRÌNH</h2>
+      <p class="text-xs font-bold text-gray-700 mt-1">KỲ QUYẾT TOÁN: THÁNG <span id="printSettlementMonth" class="text-blue-900">--</span></p>
+      <p id="printSettlementTeamFilter" class="text-[11px] text-gray-500 italic mt-0.5"></p>
+    </div>
+
+    <!-- Tóm tắt số liệu quyết toán -->
+    <table class="w-full text-xs border-collapse mb-3 print-kpi-table">
+      <tr>
+        <td class="p-2 border border-gray-400 bg-gray-50 font-bold w-1/4">Tổng Số Công:</td>
+        <td id="printKpiDays" class="p-2 border border-gray-400 font-extrabold text-blue-900 w-1/4">0 công</td>
+        <td class="p-2 border border-gray-400 bg-gray-50 font-bold w-1/4">Tổng Tiền Công:</td>
+        <td id="printKpiAmount" class="p-2 border border-gray-400 font-extrabold text-gray-900 w-1/4">0 đ</td>
+      </tr>
+      <tr>
+        <td class="p-2 border border-gray-400 bg-gray-50 font-bold">Đã Tạm Ứng:</td>
+        <td id="printKpiAdvance" class="p-2 border border-gray-400 font-extrabold text-amber-800">0 đ</td>
+        <td class="p-2 border border-gray-400 bg-gray-100 font-bold text-emerald-950">Còn Lại Phải Thanh Toán:</td>
+        <td id="printKpiRemaining" class="p-2 border border-gray-400 font-black text-emerald-900 text-sm">0 đ</td>
+      </tr>
+    </table>
+
+    <!-- Bảng chi tiết quyết toán các đội -->
+    <table class="w-full text-xs border-collapse print-table">
+      <thead>
+        <tr class="bg-gray-100 text-gray-900 font-bold border border-gray-400">
+          <th class="p-2 border border-gray-400 text-center w-8">STT</th>
+          <th class="p-2 border border-gray-400 text-left">Tên Đội Khoán</th>
+          <th class="p-2 border border-gray-400 text-left">Đại Diện / SĐT</th>
+          <th class="p-2 border border-gray-400 text-right">Đơn Giá Thỏa Thuận</th>
+          <th class="p-2 border border-gray-400 text-center">Tổng Công</th>
+          <th class="p-2 border border-gray-400 text-center">Tổng OT</th>
+          <th class="p-2 border border-gray-400 text-right">Thành Tiền</th>
+          <th class="p-2 border border-gray-400 text-right">Đã Tạm Ứng</th>
+          <th class="p-2 border border-gray-400 text-right font-bold">Còn Lại</th>
+        </tr>
+      </thead>
+      <tbody id="printSettlementTableBody">
+        <!-- Render bằng JS -->
+      </tbody>
+      <tfoot id="printSettlementTableFoot">
+        <!-- Render tổng cộng -->
+      </tfoot>
+    </table>
+
+    <!-- Khối chữ ký 3 bên -->
+    <div class="grid grid-cols-3 gap-4 mt-8 text-center text-xs print-signature-block">
+      <div>
+        <p class="font-bold uppercase text-gray-900">ĐẠI DIỆN ĐỘI KHOÁN</p>
+        <p class="text-[11px] text-gray-500 italic mt-0.5">(Ký, ghi rõ họ tên)</p>
+        <div class="h-20"></div>
+      </div>
+      <div>
+        <p class="font-bold uppercase text-gray-900">CHỈ HUY TRƯỞNG</p>
+        <p class="text-[11px] text-gray-500 italic mt-0.5">(Ký, ghi rõ họ tên)</p>
+        <div class="h-20"></div>
+      </div>
+      <div>
+        <p class="font-bold uppercase text-gray-900">NGƯỜI LẬP BẢNG</p>
+        <p class="text-[11px] text-gray-500 italic mt-0.5">(Ký, ghi rõ họ tên)</p>
+        <div class="h-20"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================================================== -->
+  <!-- KHUNG IN CHUYÊN NGHIỆP: BẢNG CÔNG 30 NGÀY (A4 NGANG) -->
+  <!-- ======================================================== -->
+  <div id="printAreaMatrix" class="hidden print-container print-landscape">
+    <div class="print-header flex justify-between items-center pb-2 border-b-2 border-gray-800">
+      <div class="w-1/4">
+        <h4 class="font-bold text-xs uppercase tracking-wide text-gray-800">CÔNG TY TNHH HIREE</h4>
+        <p class="text-[11px] text-gray-600">Dự Án: <span class="font-semibold text-gray-800">ĐÀ LẠT</span></p>
+      </div>
+      <div class="w-2/4 text-center">
+        <h2 class="text-sm md:text-base font-black uppercase text-gray-900 tracking-wider">BẢNG MA TRẬN CHẤM CÔNG CHI TIẾT 30 NGÀY</h2>
+        <p class="text-xs font-bold text-gray-700 mt-0.5">THÁNG <span id="printMatrixMonth" class="text-blue-900">--</span> <span id="printMatrixTeamFilter" class="font-normal italic"></span></p>
+      </div>
+      <div class="w-1/4 text-right">
+        <p class="text-[11px] text-gray-600">Ngày in: <span id="printMatrixDate" class="font-medium text-gray-800"></span></p>
+        <p class="text-[10px] text-gray-500 italic">Khổ giấy: A4 Ngang (Landscape)</p>
+      </div>
+    </div>
+
+    <!-- Bảng ma trận 30 ngày vừa vặn trang in -->
+    <div class="mt-2.5 print-matrix-wrapper">
+      <table id="printMatrixTable" class="w-full text-center border-collapse print-table-matrix">
+        <!-- Render động bằng JS với 30 ngày và ngày trong tuần -->
+      </table>
+    </div>
+
+    <!-- Khối chữ ký chân trang A4 ngang -->
+    <div class="flex justify-between items-start mt-6 px-10 text-center text-xs print-signature-block">
+      <div class="w-1/3">
+        <p class="font-bold uppercase text-gray-900">ĐẠI DIỆN ĐỘI KHOÁN</p>
+        <p class="text-[11px] text-gray-500 italic mt-0.5">(Ký, ghi rõ họ tên)</p>
+        <div class="h-16"></div>
+      </div>
+      <div class="w-1/3">
+        <p class="font-bold uppercase text-gray-900">CHỈ HUY TRƯỞNG DUYỆT</p>
+        <p class="text-[11px] text-gray-500 italic mt-0.5">(Ký, ghi rõ họ tên)</p>
+        <div class="h-16"></div>
+      </div>
+      <div class="w-1/3">
+        <p class="font-bold uppercase text-gray-900">NGƯỜI CHẤM CÔNG</p>
+        <p class="text-[11px] text-gray-500 italic mt-0.5">(Ký, ghi rõ họ tên)</p>
+        <div class="h-16"></div>
+      </div>
+    </div>
   </div>
 
   <script src="app.js"></script>

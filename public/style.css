@@ -60,31 +60,132 @@ body {
   user-select: none;
 }
 
-/* Print styles for A4 exports */
+/* ======================================================== */
+/* CHẾ ĐỘ IN ẤN CHUYÊN NGHIỆP A4 (PRINT STYLES)            */
+/* ======================================================== */
 @media print {
-  header, nav, .tab-btn, button, .no-print, input[type="file"], .btn-close-modal {
+  /* Ẩn tất cả các thành phần giao diện app khi in */
+  header, nav, #toast, .tab-btn, button, .no-print, input, select, .modal-backdrop {
     display: none !important;
   }
-  body {
+
+  body > *:not(#printAreaSettlement):not(#printAreaMatrix) {
+    display: none !important;
+  }
+
+  /* Reset toàn bộ trang giấy */
+  html, body {
     background: #ffffff !important;
     color: #000000 !important;
     padding: 0 !important;
-    font-size: 11pt !important;
+    margin: 0 !important;
+    font-size: 9pt !important;
+    line-height: 1.25 !important;
   }
-  .tab-content {
+
+  /* CHẾ ĐỘ 1: IN QUYẾT TOÁN TIỀN (A4 DỌC) */
+  body.printing-settlement #printAreaSettlement {
     display: block !important;
+    width: 100% !important;
+    padding: 2mm 0 !important;
   }
-  #tab-quick, #tab-detail, #tab-advances, #tab-teams {
+  body.printing-settlement #printAreaMatrix {
     display: none !important;
   }
-  #tab-reports {
+
+  /* CHẾ ĐỘ 2: IN BẢNG CÔNG 30 NGÀY (A4 NGANG) */
+  body.printing-matrix #printAreaMatrix {
     display: block !important;
+    width: 100% !important;
+    padding: 2mm 0 !important;
   }
-  #matrixTable th.sticky-col, #matrixTable td.sticky-col {
-    position: static !important;
+  body.printing-matrix #printAreaSettlement {
+    display: none !important;
   }
-  .shadow-sm, .shadow, .shadow-lg, .shadow-2xl {
-    box-shadow: none !important;
-    border: 1px solid #ccc !important;
+
+  /* Kẻ viền bảng sắc nét cho máy in */
+  .print-table, .print-table th, .print-table td,
+  .print-table-matrix, .print-table-matrix th, .print-table-matrix td,
+  .print-kpi-table, .print-kpi-table td {
+    border: 1px solid #1e293b !important;
+    border-collapse: collapse !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .print-table th, .print-table-matrix th {
+    background-color: #f1f5f9 !important;
+    color: #0f172a !important;
+    font-weight: 700 !important;
+  }
+
+  /* Tối ưu bảng ma trận 30 ngày: không cuộn ngang, vừa khít 100% A4 Ngang */
+  .print-matrix-wrapper {
+    width: 100% !important;
+    overflow: visible !important;
+  }
+
+  .print-table-matrix {
+    width: 100% !important;
+    table-layout: fixed !important;
+    font-size: 7.5pt !important;
+  }
+
+  .print-table-matrix th, .print-table-matrix td {
+    padding: 3px 0.5px !important;
+    line-height: 1.15 !important;
+    text-align: center !important;
+    word-break: break-all !important;
+  }
+
+  .print-table-matrix .col-team {
+    width: 115px !important;
+    text-align: left !important;
+    padding-left: 4px !important;
+    font-weight: 700 !important;
+    word-break: normal !important;
+  }
+
+  .print-table-matrix .col-sum-day {
+    width: 44px !important;
+    font-weight: 800 !important;
+    background-color: #eff6ff !important;
+  }
+
+  .print-table-matrix .col-sum-ot {
+    width: 38px !important;
+    font-weight: 800 !important;
+    background-color: #fffbeb !important;
+  }
+
+  .print-table-matrix .col-sum-amount {
+    width: 72px !important;
+    font-weight: 800 !important;
+    text-align: right !important;
+    padding-right: 3px !important;
+    background-color: #ecfdf5 !important;
+  }
+
+  .print-table-matrix .is-sunday {
+    background-color: #fee2e2 !important;
+    color: #b91c1c !important;
+    font-weight: 800 !important;
+  }
+
+  .print-table-matrix .has-work {
+    background-color: #d1fae5 !important;
+    color: #065f46 !important;
+    font-weight: 800 !important;
+  }
+
+  .print-table-matrix .ot-text {
+    font-size: 6.5pt !important;
+    color: #b45309 !important;
+    display: block !important;
+    line-height: 1 !important;
+  }
+
+  .print-signature-block {
+    page-break-inside: avoid !important;
   }
 }

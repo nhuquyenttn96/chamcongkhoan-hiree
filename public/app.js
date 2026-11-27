@@ -1553,9 +1553,281 @@ document.getElementById('btnExportExcel')?.addEventListener('click', async () =>
   showToast(`Đã xuất file Excel: ${fileName}`, 'success');
 });
 
-// Nút In
-document.getElementById('btnPrintReport')?.addEventListener('click', () => {
-  window.print();
+// ========================================================
+// HỆ THỐNG IN ẤN CHUYÊN NGHIỆP: A4 DỌC & A4 NGANG
+// ========================================================
+
+// Hàm thiết lập khổ giấy in linh hoạt theo chế độ
+function setPrintPageOrientation(isLandscape = false) {
+  let styleEl = document.getElementById('dynamicPrintPageStyle');
+  if (!styleEl) {
+    styleEl = document.createElement('style');
+    styleEl.id = 'dynamicPrintPageStyle';
+    document.head.appendChild(styleEl);
+  }
+  if (isLandscape) {
+    styleEl.textContent = '@page { size: A4 landscape; margin: 8mm 6mm 8mm 6mm; }';
+  } else {
+    styleEl.textContent = '@page { size: A4 portrait; margin: 10mm 10mm 10mm 10mm; }';
+  }
+}
+
+// 1. IN QUYẾT TOÁN TIỀN (A4 DỌC)
+document.getElementById('btnPrintSettlement')?.addEventListener('click', () => {
+  const selectedMonth = document.getElementById('reportSelectMonth')?.value || state.selectedMonth;
+  const rawFilterTeam = document.getElementById('reportFilterTeam')?.value || 'ALL';
+  const isFilterAll = (!rawFilterTeam || rawFilterTeam === 'ALL');
+
+  const activeTeams = isFilterAll
+    ? state.teams
+    : state.teams.filter(t => t.id === rawFilterTeam);
+
+  if (activeTeams.length === 0) {
+    showToast('Không có đội khoán nào để in quyết toán.', 'error');
+    return;
+  }
+
+  // Cập nhật thông tin Header
+  const dateFormatted = new Date().toLocaleDateString('vi-VN');
+  document.getElementById('printSettlementDate').textContent = dateFormatted;
+  document.getElementById('printSettlementMonth').textContent = selectedMonth;
+  document.getElementById('printSettlementTeamFilter').textContent = isFilterAll
+    ? '(Toàn bộ các đội khoán công trình)'
+    : `(Đang lọc chi tiết: ${activeTeams[0]?.name || ''})`;
+
+  // Lấy dữ liệu attendance và tạm ứng
+  const monthAttendance = state.attendance.filter(a => a.date && a.date.startsWith(selectedMonth));
+  const monthAdvances = state.advances.filter(adv => adv.date && adv.date.startsWith(selectedMonth));
+
+  let totalDaysAll = 0;
+  let totalOtAll = 0;
+  let totalAmountAll = 0;
+  let totalAdvanceAll = 0;
+
+  let tbodyHtml = '';
+  activeTeams.forEach((team, index) => {
+    const teamAtt = monthAttendance.filter(a => a.teamId === team.id);
+    const teamAdv = monthAdvances.filter(adv => adv.teamId === team.id);
+
+    let tDays = 0;
+    let tOt = 0;
+    let tAmount = 0;
+    let tAdvance = 0;
+
+    teamAtt.forEach(a => {
+      tDays += (a.totalWorkDays || 0);
+      tOt += (a.otHours || 0);
+      tAmount += (a.totalAmount || 0);
+    });
+
+    teamAdv.forEach(adv => {
+      tAdvance += (adv.amount || 0);
+    });
+
+    const tRemaining = tAmount - tAdvance;
+
+    totalDaysAll += tDays;
+    totalOtAll += tOt;
+    totalAmountAll += tAmount;
+    totalAdvanceAll += tAdvance;
+
+    tbodyHtml += `
+      <tr class="border border-gray-400">
+        <td class="p-1.5 border border-gray-400 text-center">${index + 1}</td>
+        <td class="p-1.5 border border-gray-400 font-bold text-gray-900">${escapeHtml(team.name)}</td>
+        <td class="p-1.5 border border-gray-400 text-[11px] text-gray-700">${escapeHtml(team.leader || '--')} • ${escapeHtml(team.phone || '--')}</td>
+        <td class="p-1.5 border border-gray-400 text-right">${formatMoney(team.defaultRate)}</td>
+        <td class="p-1.5 border border-gray-400 text-center font-bold text-blue-900">${tDays}</td>
+        <td class="p-1.5 border border-gray-400 text-center font-bold text-amber-900">${tOt}h</td>
+        <td class="p-1.5 border border-gray-400 text-right font-bold text-gray-900">${formatMoney(tAmount)}</td>
+        <td class="p-1.5 border border-gray-400 text-right font-bold text-amber-900">${formatMoney(tAdvance)}</td>
+        <td class="p-1.5 border border-gray-400 text-right font-black ${tRemaining > 0 ? 'text-emerald-900' : 'text-gray-700'}">${formatMoney(tRemaining)}</td>
+      </tr>
+    `;
+  });
+
+  const totalRemainingAll = totalAmountAll - totalAdvanceAll;
+
+  // Cập nhật thẻ tóm tắt
+  document.getElementById('printKpiDays').textContent = `${totalDaysAll} công`;
+  document.getElementById('printKpiAmount').textContent = formatMoney(totalAmountAll);
+  document.getElementById('printKpiAdvance').textContent = formatMoney(totalAdvanceAll);
+  document.getElementById('printKpiRemaining').textContent = formatMoney(totalRemainingAll);
+
+  // Render Body và Footer
+  document.getElementById('printSettlementTableBody').innerHTML = tbodyHtml;
+  document.getElementById('printSettlementTableFoot').innerHTML = `
+    <tr class="bg-gray-100 font-black border-2 border-gray-600 text-gray-950">
+      <td colspan="4" class="p-2 border border-gray-400 text-center uppercase tracking-wider">TỔNG CỘNG TOÀN CÔNG TRƯỜNG</td>
+      <td class="p-2 border border-gray-400 text-center text-blue-950">${totalDaysAll}</td>
+      <td class="p-2 border border-gray-400 text-center text-amber-950">${totalOtAll}h</td>
+      <td class="p-2 border border-gray-400 text-right text-gray-950">${formatMoney(totalAmountAll)}</td>
+      <td class="p-2 border border-gray-400 text-right text-amber-950">${formatMoney(totalAdvanceAll)}</td>
+      <td class="p-2 border border-gray-400 text-right text-emerald-950 text-sm">${formatMoney(totalRemainingAll)}</td>
+    </tr>
+  `;
+
+  // Kích hoạt in A4 Dọc
+  setPrintPageOrientation(false);
+  document.body.className = 'printing-settlement';
+
+  setTimeout(() => {
+    window.print();
+  }, 100);
+
+  window.onafterprint = () => {
+    document.body.className = '';
+  };
+});
+
+// 2. IN BẢNG CÔNG 30 NGÀY (A4 NGANG)
+document.getElementById('btnPrintMatrix')?.addEventListener('click', () => {
+  const selectedMonth = document.getElementById('reportSelectMonth')?.value || state.selectedMonth;
+  const rawFilterTeam = document.getElementById('reportFilterTeam')?.value || 'ALL';
+  const isFilterAll = (!rawFilterTeam || rawFilterTeam === 'ALL');
+
+  const activeTeams = isFilterAll
+    ? state.teams
+    : state.teams.filter(t => t.id === rawFilterTeam);
+
+  if (activeTeams.length === 0) {
+    showToast('Không có đội khoán nào để in bảng công.', 'error');
+    return;
+  }
+
+  const [yearStr, monthStr] = selectedMonth.split('-');
+  const year = parseInt(yearStr);
+  const month = parseInt(monthStr);
+  const daysInMonth = new Date(year, month, 0).getDate();
+
+  const dateFormatted = new Date().toLocaleDateString('vi-VN');
+  document.getElementById('printMatrixDate').textContent = dateFormatted;
+  document.getElementById('printMatrixMonth').textContent = selectedMonth;
+  document.getElementById('printMatrixTeamFilter').textContent = isFilterAll
+    ? ''
+    : `(Đang lọc: ${activeTeams[0]?.name || ''})`;
+
+  const monthAttendance = state.attendance.filter(a => a.date && a.date.startsWith(selectedMonth));
+
+  // Tên thứ ngắn
+  const dayNames = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
+
+  // Tạo Header
+  let theadHtml = `
+    <thead>
+      <tr class="bg-gray-100 font-bold text-gray-900 border border-gray-400">
+        <th rowspan="2" class="col-team p-1 border border-gray-400">Đội Khoán / Ngày</th>
+  `;
+  for (let day = 1; day <= daysInMonth; day++) {
+    const d = new Date(year, month - 1, day);
+    const isSunday = d.getDay() === 0;
+    theadHtml += `<th class="p-0.5 border border-gray-400 ${isSunday ? 'is-sunday' : ''}">${day}</th>`;
+  }
+  theadHtml += `
+        <th rowspan="2" class="col-sum-day p-1 border border-gray-400">Tổng Công</th>
+        <th rowspan="2" class="col-sum-ot p-1 border border-gray-400">Tổng OT</th>
+        <th rowspan="2" class="col-sum-amount p-1 border border-gray-400">Thành Tiền</th>
+      </tr>
+      <tr class="bg-gray-50 text-[6.5pt] font-semibold text-gray-700 border border-gray-400">
+  `;
+  for (let day = 1; day <= daysInMonth; day++) {
+    const d = new Date(year, month - 1, day);
+    const dayOfWeek = d.getDay();
+    const isSunday = dayOfWeek === 0;
+    theadHtml += `<th class="p-0 border border-gray-400 ${isSunday ? 'is-sunday text-red-600 font-bold' : ''}">${dayNames[dayOfWeek]}</th>`;
+  }
+  theadHtml += `</tr></thead>`;
+
+  // Tạo Body
+  let tbodyHtml = '<tbody>';
+  let totalDaysAll = 0;
+  let totalOtAll = 0;
+  let totalAmountAll = 0;
+
+  activeTeams.forEach(team => {
+    let teamMonthDays = 0;
+    let teamMonthOt = 0;
+    let teamMonthAmount = 0;
+
+    tbodyHtml += `<tr class="border border-gray-400"><td class="col-team p-1 border border-gray-400">${escapeHtml(team.name)}</td>`;
+
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dayStr = `${selectedMonth}-${String(day).padStart(2, '0')}`;
+      const rec = monthAttendance.find(a => a.date === dayStr && a.teamId === team.id);
+      const d = new Date(year, month - 1, day);
+      const isSunday = d.getDay() === 0;
+
+      if (rec && (rec.totalWorkDays > 0 || rec.otHours > 0)) {
+        teamMonthDays += (rec.totalWorkDays || 0);
+        teamMonthOt += (rec.otHours || 0);
+        teamMonthAmount += (rec.totalAmount || 0);
+
+        tbodyHtml += `
+          <td class="p-0.5 border border-gray-400 has-work ${isSunday ? 'is-sunday' : ''}">
+            ${rec.totalWorkDays || 0}${rec.otHours ? `<span class="ot-text">+${rec.otHours}h</span>` : ''}
+          </td>
+        `;
+      } else {
+        tbodyHtml += `<td class="p-0.5 border border-gray-400 text-gray-300 ${isSunday ? 'is-sunday' : ''}">•</td>`;
+      }
+    }
+
+    totalDaysAll += teamMonthDays;
+    totalOtAll += teamMonthOt;
+    totalAmountAll += teamMonthAmount;
+
+    tbodyHtml += `
+      <td class="col-sum-day p-1 border border-gray-400 text-blue-900">${teamMonthDays}</td>
+      <td class="col-sum-ot p-1 border border-gray-400 text-amber-900">${teamMonthOt}h</td>
+      <td class="col-sum-amount p-1 border border-gray-400 text-emerald-900">${formatMoney(teamMonthAmount)}</td>
+    </tr>`;
+  });
+  tbodyHtml += '</tbody>';
+
+  // Tạo Footer tổng hợp công theo từng ngày
+  let tfootHtml = `
+    <tfoot>
+      <tr class="bg-gray-100 font-bold border-2 border-gray-600 text-gray-950">
+        <td class="col-team p-1 border border-gray-400 uppercase text-[7pt]">Tổng Công / Ngày</td>
+  `;
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dayStr = `${selectedMonth}-${String(day).padStart(2, '0')}`;
+    const d = new Date(year, month - 1, day);
+    const isSunday = d.getDay() === 0;
+
+    let dayWorkSum = 0;
+    monthAttendance
+      .filter(a => a.date === dayStr && activeTeams.some(t => t.id === a.teamId))
+      .forEach(a => { dayWorkSum += (a.totalWorkDays || 0); });
+
+    tfootHtml += `
+      <td class="p-0.5 border border-gray-400 ${isSunday ? 'is-sunday' : ''} ${dayWorkSum > 0 ? 'font-black text-blue-950' : 'text-gray-400'}">
+        ${dayWorkSum > 0 ? dayWorkSum : '-'}
+      </td>
+    `;
+  }
+
+  tfootHtml += `
+        <td class="col-sum-day p-1 border border-gray-400 text-blue-950 font-black">${totalDaysAll}</td>
+        <td class="col-sum-ot p-1 border border-gray-400 text-amber-950 font-black">${totalOtAll}h</td>
+        <td class="col-sum-amount p-1 border border-gray-400 text-emerald-950 font-black">${formatMoney(totalAmountAll)}</td>
+      </tr>
+    </tfoot>
+  `;
+
+  document.getElementById('printMatrixTable').innerHTML = theadHtml + tbodyHtml + tfootHtml;
+
+  // Kích hoạt in A4 Ngang
+  setPrintPageOrientation(true);
+  document.body.className = 'printing-matrix';
+
+  setTimeout(() => {
+    window.print();
+  }, 100);
+
+  window.onafterprint = () => {
+    document.body.className = '';
+  };
 });
 
 
