@@ -310,26 +310,39 @@ app.post('/api/attendance/detail', async (req, res) => {
 
   let totalWorkDays = 0;
   let totalOtHours = 0;
+  let totalComputedAmount = 0;
+
+  const otMultiplier = (data.settings && data.settings.defaultOtMultiplier) || 1.5;
 
   const sanitizedWorkers = workerRecords.map(w => {
     const workDay = Number(w.workDay) || 0;
     const otHours = Number(w.otHours) || 0;
     totalWorkDays += workDay;
     totalOtHours += otHours;
+
+    // Đơn giá riêng của thợ (nếu có), nếu không có thì lấy đơn giá chung của đội
+    const workerRate = (w.rate !== undefined && w.rate !== null && w.rate !== '' && Number(w.rate) > 0)
+      ? Number(w.rate)
+      : effectiveRate;
+
+    const workerOtInDays = (otHours / 8) * otMultiplier;
+    const workerAmount = Math.round((workDay + workerOtInDays) * workerRate);
+    totalComputedAmount += workerAmount;
+
     return {
       workerId: w.workerId,
       workerName: w.workerName,
       role: w.role || 'Thợ',
+      rate: workerRate,
       workDay,
       otHours,
+      amount: workerAmount,
       status: w.status || (workDay > 0 ? 'present' : 'absent'),
       note: w.note || ''
     };
   });
 
-  const otMultiplier = (data.settings && data.settings.defaultOtMultiplier) || 1.5;
-  const otInDays = (totalOtHours / 8) * otMultiplier;
-  const totalAmount = Math.round((totalWorkDays + otInDays) * effectiveRate);
+  const totalAmount = totalComputedAmount;
 
   const recordId = `att_${date.replace(/-/g, '')}_${teamId}`;
   const existingIndex = data.attendance.findIndex(a => a.id === recordId || (a.date === date && a.teamId === teamId));

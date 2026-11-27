@@ -567,7 +567,7 @@ function renderDetailAttendanceView() {
   if (workers.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="8" class="text-center py-10 text-slate-400">
+        <td colspan="10" class="text-center py-10 text-slate-400">
           <p class="font-semibold text-sm">Đội này chưa có danh sách thợ.</p>
           <button onclick="openAddWorkerModal('${team.id}')" class="mt-2 text-xs bg-indigo-50 text-indigo-600 font-bold px-3 py-1.5 rounded-lg hover:bg-indigo-100">
             + Thêm thợ thành viên ngay
@@ -575,13 +575,15 @@ function renderDetailAttendanceView() {
         </td>
       </tr>
     `;
-    updateDetailBannerTotals(team, []);
+    recalcDetailBanner();
     return;
   }
 
+  const otMultiplier = state.settings.defaultOtMultiplier || 1.5;
+
   tbody.innerHTML = workers.map((w, index) => {
     // Tìm thông tin thợ đã chấm trong ngày
-    let workDay = 1.0; // Mặc định 1 công
+    let workDay = 1.0;
     let otHours = 0;
     let note = '';
 
@@ -593,56 +595,81 @@ function renderDetailAttendanceView() {
         note = wRec.note || '';
       }
     } else if (existingRec && existingRec.type === 'TOTAL') {
-      // Nếu trước đó chấm tổng, ta tạm chia đều hoặc giữ nguyên
       workDay = 1.0;
     }
 
+    const effectiveRate = (w.rate !== undefined && w.rate !== null && w.rate !== '' && Number(w.rate) > 0)
+      ? Number(w.rate)
+      : (team.defaultRate || 0);
+    const hasCustomRate = (w.rate !== undefined && w.rate !== null && w.rate !== '' && Number(w.rate) > 0);
+
+    const otInDays = (otHours / 8) * otMultiplier;
+    const workerAmount = Math.round((workDay + otInDays) * effectiveRate);
+
     return `
       <tr class="hover:bg-slate-50 transition border-b border-slate-100" data-worker-id="${w.id}">
-        <td class="py-3 px-4 text-center font-bold text-slate-400">${index + 1}</td>
-        <td class="py-3 px-4">
+        <td class="py-3 px-3 text-center font-bold text-slate-400">${index + 1}</td>
+        <td class="py-3 px-3">
           <div class="font-bold text-slate-800 text-sm">${escapeHtml(w.name)}</div>
-          <div class="text-[11px] text-slate-400">${w.phone ? `SĐT: ${w.phone}` : ''}</div>
+          <div class="text-[11px] text-slate-400">${w.phone ? `SĐT: ${escapeHtml(w.phone)}` : ''}</div>
         </td>
-        <td class="py-3 px-4">
-          <span class="text-xs font-semibold px-2 py-0.5 rounded-full ${w.role === 'Đội trưởng' ? 'bg-amber-100 text-amber-800' : (w.role === 'Thợ chính' ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-600')}">
+        <td class="py-3 px-3">
+          <span class="text-xs font-semibold px-2 py-0.5 rounded-full ${w.role === 'Đội trưởng' ? 'bg-amber-100 text-amber-800' : (w.role === 'Thợ chính' ? 'bg-blue-100 text-blue-800' : (w.role === 'Thợ phụ' ? 'bg-teal-100 text-teal-800' : 'bg-slate-100 text-slate-600'))}">
             ${escapeHtml(w.role || 'Thợ')}
           </span>
         </td>
+        <!-- Cột Đơn Giá Riêng Của Thợ -->
+        <td class="py-3 px-3 text-right">
+          <span class="font-bold text-xs ${hasCustomRate ? 'text-indigo-700 bg-indigo-50 border border-indigo-200' : 'text-slate-600 bg-slate-100'} px-2 py-0.5 rounded">
+            ${formatMoney(effectiveRate)}
+          </span>
+          ${hasCustomRate ? '<span class="block text-[10px] text-indigo-500 font-semibold">Giá riêng</span>' : '<span class="block text-[10px] text-slate-400">Giá đội</span>'}
+        </td>
         <!-- Các nút chấm nhanh 1 chạm cho thợ -->
-        <td class="py-3 px-4 text-center">
+        <td class="py-3 px-3 text-center">
           <div class="inline-flex rounded-md shadow-sm" role="group">
-            <button type="button" onclick="setWorkerWorkDay('${w.id}', 1.0)" class="btn-quick-worker text-xs font-bold px-2.5 py-1 rounded-l-md border border-slate-200 ${workDay === 1.0 ? 'bg-emerald-600 text-white' : 'bg-white text-slate-700 hover:bg-slate-100'}">
+            <button type="button" onclick="setWorkerWorkDay('${w.id}', 1.0)" class="btn-quick-worker text-xs font-bold px-2 py-1 rounded-l-md border border-slate-200 ${workDay === 1.0 ? 'bg-emerald-600 text-white' : 'bg-white text-slate-700 hover:bg-slate-100'}">
               1.0
             </button>
-            <button type="button" onclick="setWorkerWorkDay('${w.id}', 0.5)" class="btn-quick-worker text-xs font-bold px-2 py-1 border-t border-b border-slate-200 ${workDay === 0.5 ? 'bg-amber-500 text-white' : 'bg-white text-slate-700 hover:bg-slate-100'}">
+            <button type="button" onclick="setWorkerWorkDay('${w.id}', 0.5)" class="btn-quick-worker text-xs font-bold px-1.5 py-1 border-t border-b border-slate-200 ${workDay === 0.5 ? 'bg-amber-500 text-white' : 'bg-white text-slate-700 hover:bg-slate-100'}">
               0.5
             </button>
-            <button type="button" onclick="setWorkerWorkDay('${w.id}', 0)" class="btn-quick-worker text-xs font-bold px-2.5 py-1 rounded-r-md border border-slate-200 ${workDay === 0 ? 'bg-rose-500 text-white' : 'bg-white text-slate-700 hover:bg-slate-100'}">
-              Vắng
+            <button type="button" onclick="setWorkerWorkDay('${w.id}', 0)" class="btn-quick-worker text-xs font-bold px-2 py-1 rounded-r-md border border-slate-200 ${workDay === 0 ? 'bg-rose-500 text-white' : 'bg-white text-slate-700 hover:bg-slate-100'}">
+              0
             </button>
           </div>
         </td>
         <!-- Ô nhập công chính xác -->
-        <td class="py-3 px-4 text-center">
+        <td class="py-3 px-3 text-center">
           <input type="number" step="0.25" min="0" id="worker_day_${w.id}" value="${workDay}" oninput="recalcDetailBanner()" 
             class="w-16 text-center font-bold text-sm bg-slate-50 border border-slate-300 rounded-lg py-1 text-blue-700 focus:outline-none focus:ring-1 focus:ring-blue-500">
         </td>
         <!-- Tăng ca OT -->
-        <td class="py-3 px-4 text-center">
+        <td class="py-3 px-3 text-center">
           <input type="number" step="0.5" min="0" id="worker_ot_${w.id}" value="${otHours}" oninput="recalcDetailBanner()" 
             class="w-14 text-center font-bold text-xs bg-slate-50 border border-slate-300 rounded-lg py-1 text-amber-700 focus:outline-none focus:ring-1 focus:ring-amber-500">
         </td>
-        <!-- Ghi chú cá nhân -->
-        <td class="py-3 px-4">
-          <input type="text" id="worker_note_${w.id}" value="${escapeHtml(note)}" placeholder="Lý do đi muộn, việc riêng..." 
-            class="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500">
+        <!-- Thành Tiền của thợ -->
+        <td class="py-3 px-3 text-right">
+          <span id="worker_amount_${w.id}" class="font-extrabold text-xs text-emerald-700">
+            ${formatMoney(workerAmount)}
+          </span>
         </td>
-        <!-- Xóa thợ khỏi đội -->
-        <td class="py-3 px-4 text-center">
-          <button type="button" onclick="removeWorkerFromTeam('${team.id}', '${w.id}')" title="Xóa thợ khỏi danh sách đội" class="text-slate-400 hover:text-red-600 transition p-1">
-            <i data-lucide="trash-2" class="w-4 h-4"></i>
-          </button>
+        <!-- Ghi chú cá nhân -->
+        <td class="py-3 px-3">
+          <input type="text" id="worker_note_${w.id}" value="${escapeHtml(note)}" placeholder="Lý do, hạng mục..." 
+            class="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500">
+        </td>
+        <!-- Thao tác: Sửa lương & Xóa thợ -->
+        <td class="py-3 px-3 text-center">
+          <div class="flex items-center justify-center gap-1">
+            <button type="button" onclick="openEditWorkerModal('${team.id}', '${w.id}')" title="Sửa lương & thông tin thợ" class="text-slate-400 hover:text-blue-600 transition p-1">
+              <i data-lucide="edit-2" class="w-3.5 h-3.5"></i>
+            </button>
+            <button type="button" onclick="removeWorkerFromTeam('${team.id}', '${w.id}')" title="Xóa thợ khỏi đội" class="text-slate-400 hover:text-red-600 transition p-1">
+              <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+            </button>
+          </div>
         </td>
       </tr>
     `;
@@ -656,7 +683,7 @@ function setWorkerWorkDay(workerId, val) {
   const input = document.getElementById(`worker_day_${workerId}`);
   if (input) {
     input.value = val;
-    renderDetailAttendanceView(); // Refresh buttons styling
+    renderDetailAttendanceView();
   }
 }
 
@@ -668,17 +695,32 @@ function recalcDetailBanner() {
 
   let totalDays = 0;
   let totalOt = 0;
+  let totalAmount = 0;
+
+  const otMultiplier = state.settings.defaultOtMultiplier || 1.5;
 
   (team.workers || []).forEach(w => {
     const dayInput = document.getElementById(`worker_day_${w.id}`);
     const otInput = document.getElementById(`worker_ot_${w.id}`);
-    if (dayInput) totalDays += (parseFloat(dayInput.value) || 0);
-    if (otInput) totalOt += (parseFloat(otInput.value) || 0);
-  });
+    const wDay = dayInput ? (parseFloat(dayInput.value) || 0) : 0;
+    const wOt = otInput ? (parseFloat(otInput.value) || 0) : 0;
 
-  const otMultiplier = state.settings.defaultOtMultiplier || 1.5;
-  const otInDays = (totalOt / 8) * otMultiplier;
-  const totalAmount = Math.round((totalDays + otInDays) * (team.defaultRate || 0));
+    totalDays += wDay;
+    totalOt += wOt;
+
+    const effectiveRate = (w.rate !== undefined && w.rate !== null && w.rate !== '' && Number(w.rate) > 0)
+      ? Number(w.rate)
+      : (team.defaultRate || 0);
+
+    const wOtInDays = (wOt / 8) * otMultiplier;
+    const wAmount = Math.round((wDay + wOtInDays) * effectiveRate);
+    totalAmount += wAmount;
+
+    const wAmountEl = document.getElementById(`worker_amount_${w.id}`);
+    if (wAmountEl) {
+      wAmountEl.textContent = formatMoney(wAmount);
+    }
+  });
 
   document.getElementById('detailBannerTotalDays').textContent = totalDays;
   document.getElementById('detailBannerTotalOt').textContent = totalOt;
@@ -702,10 +744,15 @@ document.getElementById('btnSaveDetail')?.addEventListener('click', async () => 
     const day = parseFloat(document.getElementById(`worker_day_${w.id}`)?.value) || 0;
     const ot = parseFloat(document.getElementById(`worker_ot_${w.id}`)?.value) || 0;
     const note = document.getElementById(`worker_note_${w.id}`)?.value || '';
+    const effectiveRate = (w.rate !== undefined && w.rate !== null && w.rate !== '' && Number(w.rate) > 0)
+      ? Number(w.rate)
+      : (team.defaultRate || 0);
+
     return {
       workerId: w.id,
       workerName: w.name,
       role: w.role,
+      rate: effectiveRate,
       workDay: day,
       otHours: ot,
       status: day > 0 ? 'present' : 'absent',
@@ -964,9 +1011,10 @@ document.getElementById('reportSelectMonth')?.addEventListener('change', (e) => 
 });
 document.getElementById('reportFilterTeam')?.addEventListener('change', renderReportsView);
 
-// XUẤT EXCEL CHUYÊN NGHIỆP CHUẨN IN ẤN & KẾ TOÁN (EXCELJS + SHEETJS FALLBACK)
+// XUẤT EXCEL DẠNG LỊCH THÁNG (CALENDAR GRID 7 CỘT THỨ 2 -> CHỦ NHẬT ĐỎ) + TỔNG HỢP THANH TOÁN
 document.getElementById('btnExportExcel')?.addEventListener('click', async () => {
   const selectedMonth = document.getElementById('reportSelectMonth')?.value || state.selectedMonth;
+  const filterTeamId = document.getElementById('reportFilterTeam')?.value || '';
   const [yearStr, monthStr] = selectedMonth.split('-');
   const year = parseInt(yearStr);
   const month = parseInt(monthStr);
@@ -975,15 +1023,9 @@ document.getElementById('btnExportExcel')?.addEventListener('click', async () =>
   const monthAttendance = state.attendance.filter(a => a.date && a.date.startsWith(selectedMonth));
   const monthAdvances = state.advances.filter(adv => adv.date && adv.date.startsWith(selectedMonth));
 
-  // Max width calculation for dynamic fit
-  let maxTeamLen = 22;
-  let maxLeaderLen = 14;
-  state.teams.forEach(t => {
-    if (t.name && t.name.length > maxTeamLen) maxTeamLen = t.name.length;
-    if (t.leader && t.leader.length > maxLeaderLen) maxLeaderLen = t.leader.length;
-  });
+  const targetTeams = filterTeamId ? state.teams.filter(t => t.id === filterTeamId) : state.teams;
 
-  // PHƯƠNG ÁN CHÍNH: EXCELJS (CHUẨN IN ẤN 1B - VIỀN NÉT MẢNH, ĐỊNH DẠNG SỐ, CHỮ KÝ 2B)
+  // PHƯƠNG ÁN CHÍNH: EXCELJS - DẠNG LỊCH THÁNG 7 CỘT CHUẨN ĐẸP A4
   if (typeof ExcelJS !== 'undefined') {
     try {
       const workbook = new ExcelJS.Workbook();
@@ -991,261 +1033,291 @@ document.getElementById('btnExportExcel')?.addEventListener('click', async () =>
       workbook.created = new Date();
 
       const thinBorder = {
-        top: { style: 'thin', color: { argb: 'FF000000' } },
-        left: { style: 'thin', color: { argb: 'FF000000' } },
-        bottom: { style: 'thin', color: { argb: 'FF000000' } },
-        right: { style: 'thin', color: { argb: 'FF000000' } }
+        top: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+        left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+        bottom: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+        right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
       };
-      const doubleBottomBorder = {
-        top: { style: 'thin', color: { argb: 'FF000000' } },
-        left: { style: 'thin', color: { argb: 'FF000000' } },
-        bottom: { style: 'double', color: { argb: 'FF000000' } },
-        right: { style: 'thin', color: { argb: 'FF000000' } }
-      };
-      const headerFill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FFF2F4F7' } // Tối giản, thanh lịch, chuẩn in ấn A4
+      const darkBorder = {
+        top: { style: 'thin', color: { argb: 'FF334155' } },
+        left: { style: 'thin', color: { argb: 'FF334155' } },
+        bottom: { style: 'thin', color: { argb: 'FF334155' } },
+        right: { style: 'thin', color: { argb: 'FF334155' } }
       };
 
       // ----------------------------------------------------
-      // SHEET 1: BẢNG CHẤM CÔNG CHI TIẾT
+      // SHEET 1: LỊCH CHẤM CÔNG THÁNG (ĐÚNG 7 CỘT THỨ + 1 CỘT TỔNG TUẦN = 8 CỘT)
       // ----------------------------------------------------
-      const ws1 = workbook.addWorksheet('Bang_Cham_Cong', {
-        pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 }
+      const ws1 = workbook.addWorksheet('Lich_Cham_Cong', {
+        pageSetup: { orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 }
       });
 
-      const totalCols1 = 4 + daysInMonth + 3;
-
-      // Tiêu đề 1
-      ws1.mergeCells(1, 1, 1, totalCols1);
-      const titleRow1 = ws1.getCell(1, 1);
-      titleRow1.value = `BẢNG CHẤM CÔNG ĐỘI KHOÁN - THÁNG ${monthStr}/${yearStr}`;
-      titleRow1.font = { name: 'Times New Roman', size: 16, bold: true, color: { argb: 'FF000000' } };
-      titleRow1.alignment = { vertical: 'middle', horizontal: 'center' };
-      ws1.getRow(1).height = 30;
-
-      // Tiêu đề 2 (Thông tin đơn vị / dự án)
-      ws1.mergeCells(2, 1, 2, totalCols1);
-      const titleRow2 = ws1.getCell(2, 1);
-      titleRow2.value = `Đơn vị: ${state.settings.companyName || 'Chấm công đội_HIREE'}   |   Dự án: ${state.settings.projectName || 'Chấm công đội_HIREE'}`;
-      titleRow2.font = { name: 'Times New Roman', size: 11, italic: true };
-      titleRow2.alignment = { vertical: 'middle', horizontal: 'center' };
-      ws1.getRow(2).height = 20;
-
-      // Dòng 3 trống
-      ws1.getRow(3).height = 8;
-
-      // Dòng 4: Header cột
-      const headerRow4 = ws1.getRow(4);
-      headerRow4.height = 28;
-      const colHeaders1 = ['STT', 'Đội Khoán', 'Đại Diện', 'Đơn Giá (đ)'];
-      for (let d = 1; d <= daysInMonth; d++) {
-        colHeaders1.push(`N${d}`);
+      // 7 ngày trong tuần + 1 cột tổng tuần
+      for (let c = 1; c <= 7; c++) {
+        ws1.getColumn(c).width = 15;
       }
-      colHeaders1.push('Tổng Công', 'Tổng OT (h)', 'Thành Tiền (đ)');
+      ws1.getColumn(8).width = 18;
 
-      colHeaders1.forEach((val, idx) => {
-        const cell = headerRow4.getCell(idx + 1);
-        cell.value = val;
-        cell.font = { name: 'Times New Roman', size: 10, bold: true };
-        cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
-        cell.fill = headerFill;
-        cell.border = thinBorder;
-      });
+      let currentRow = 1;
 
-      // Dữ liệu từng đội
-      let rowIdx = 5;
-      let grandTotalDays = 0;
-      let grandTotalOt = 0;
-      let grandTotalAmount = 0;
-      const colDayTotals = new Array(daysInMonth).fill(0);
+      // Tiêu đề chính
+      ws1.mergeCells(currentRow, 1, currentRow, 8);
+      const title1 = ws1.getCell(currentRow, 1);
+      title1.value = `BẢNG LỊCH CHẤM CÔNG - THÁNG ${monthStr}/${yearStr}`;
+      title1.font = { name: 'Times New Roman', size: 16, bold: true, color: { argb: 'FF1E3A8A' } };
+      title1.alignment = { vertical: 'middle', horizontal: 'center' };
+      ws1.getRow(currentRow).height = 32;
+      currentRow++;
 
-      state.teams.forEach((team, tIdx) => {
-        const row = ws1.getRow(rowIdx);
-        row.height = 22;
+      // Tiêu đề phụ
+      ws1.mergeCells(currentRow, 1, currentRow, 8);
+      const title2 = ws1.getCell(currentRow, 1);
+      title2.value = `Đơn vị: ${state.settings.companyName || 'Chấm công đội_HIREE'}   |   Dự án: ${state.settings.projectName || 'Chấm công đội_HIREE'}`;
+      title2.font = { name: 'Times New Roman', size: 11, italic: true, color: { argb: 'FF475569' } };
+      title2.alignment = { vertical: 'middle', horizontal: 'center' };
+      ws1.getRow(currentRow).height = 20;
+      currentRow += 2;
 
-        let tDays = 0;
-        let tOt = 0;
-        let tAmount = 0;
+      // Hàm vẽ một khối Lịch Tháng cho 1 Đội hoặc Toàn công trường
+      function renderCalendarBlock(team, isGrandTotal = false) {
+        // Dòng Tiêu Đề Đội
+        ws1.mergeCells(currentRow, 1, currentRow, 8);
+        const teamHeaderCell = ws1.getCell(currentRow, 1);
+        if (isGrandTotal) {
+          teamHeaderCell.value = `TỔNG HỢP TOÀN CÔNG TRƯỜNG (TẤT CẢ CÁC ĐỘI)`;
+          teamHeaderCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDBEAFE' } };
+          teamHeaderCell.font = { name: 'Times New Roman', size: 12, bold: true, color: { argb: 'FF1E40AF' } };
+        } else {
+          teamHeaderCell.value = `ĐỘI KHOÁN: ${team.name.toUpperCase()}   |   Đại diện: ${team.leader || '---'}   |   Đơn giá: ${(team.defaultRate || 0).toLocaleString('vi-VN')} đ/công`;
+          teamHeaderCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
+          teamHeaderCell.font = { name: 'Times New Roman', size: 12, bold: true, color: { argb: 'FF0F172A' } };
+        }
+        teamHeaderCell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+        teamHeaderCell.border = darkBorder;
+        ws1.getRow(currentRow).height = 26;
+        currentRow++;
 
-        // Cột 1: STT
-        const cellSTT = row.getCell(1);
-        cellSTT.value = tIdx + 1;
-        cellSTT.alignment = { vertical: 'middle', horizontal: 'center' };
-        cellSTT.border = thinBorder;
-        cellSTT.font = { name: 'Times New Roman', size: 10 };
+        // Hàng Tiêu Đề Thứ (Thứ 2 -> Chủ Nhật + Tổng Tuần)
+        const weekdays = ['THỨ HAI', 'THỨ BA', 'THỨ TƯ', 'THỨ NĂM', 'THỨ SÁU', 'THỨ BẢY', 'CHỦ NHẬT', 'TỔNG TUẦN'];
+        const headerRow = ws1.getRow(currentRow);
+        headerRow.height = 26;
 
-        // Cột 2: Đội Khoán
-        const cellTeam = row.getCell(2);
-        cellTeam.value = team.name;
-        cellTeam.alignment = { vertical: 'middle', horizontal: 'left' };
-        cellTeam.border = thinBorder;
-        cellTeam.font = { name: 'Times New Roman', size: 10, bold: true };
+        weekdays.forEach((dayName, idx) => {
+          const cell = headerRow.getCell(idx + 1);
+          cell.value = dayName;
+          cell.border = darkBorder;
+          cell.alignment = { vertical: 'middle', horizontal: 'center' };
 
-        // Cột 3: Đại Diện
-        const cellLeader = row.getCell(3);
-        cellLeader.value = team.leader || '';
-        cellLeader.alignment = { vertical: 'middle', horizontal: 'left' };
-        cellLeader.border = thinBorder;
-        cellLeader.font = { name: 'Times New Roman', size: 10 };
-
-        // Cột 4: Đơn Giá
-        const cellRate = row.getCell(4);
-        cellRate.value = team.defaultRate || 0;
-        cellRate.numFmt = '#,##0';
-        cellRate.alignment = { vertical: 'middle', horizontal: 'right' };
-        cellRate.border = thinBorder;
-        cellRate.font = { name: 'Times New Roman', size: 10 };
-
-        // Cột Ngày
-        for (let d = 1; d <= daysInMonth; d++) {
-          const dayStr = `${selectedMonth}-${String(d).padStart(2, '0')}`;
-          const rec = monthAttendance.find(a => a.date === dayStr && a.teamId === team.id);
-          const cellDay = row.getCell(4 + d);
-          cellDay.border = thinBorder;
-          cellDay.alignment = { vertical: 'middle', horizontal: 'center' };
-          cellDay.font = { name: 'Times New Roman', size: 10 };
-
-          if (rec && (rec.totalWorkDays > 0 || rec.otHours > 0)) {
-            tDays += (rec.totalWorkDays || 0);
-            tOt += (rec.otHours || 0);
-            tAmount += (rec.totalAmount || 0);
-            cellDay.value = rec.totalWorkDays || '';
-            if (rec.totalWorkDays > 0) cellDay.font = { name: 'Times New Roman', size: 10, bold: true };
-            colDayTotals[d - 1] += (rec.totalWorkDays || 0);
+          if (idx === 6) {
+            // Chủ Nhật: Đỏ nổi bật
+            cell.font = { name: 'Times New Roman', size: 10, bold: true, color: { argb: 'FFDC2626' } };
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
+          } else if (idx === 5) {
+            // Thứ Bảy
+            cell.font = { name: 'Times New Roman', size: 10, bold: true, color: { argb: 'FF475569' } };
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+          } else if (idx === 7) {
+            // Tổng Tuần
+            cell.font = { name: 'Times New Roman', size: 10, bold: true, color: { argb: 'FF1E40AF' } };
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDBEAFE' } };
           } else {
-            cellDay.value = '';
+            cell.font = { name: 'Times New Roman', size: 10, bold: true, color: { argb: 'FF1E293B' } };
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } };
           }
+        });
+        currentRow++;
+
+        // Tính ngày đầu tháng rơi vào thứ mấy (0: CN, 1: T2, ..., 6: T7)
+        const firstDay = new Date(year, month - 1, 1).getDay();
+        const startCol = (firstDay === 0) ? 6 : (firstDay - 1); // Đưa T2 về 0, CN về 6
+
+        let currentDayNum = 1;
+        let weekIndex = 1;
+        let grandBlockDays = 0;
+        let grandBlockOt = 0;
+        let grandBlockAmount = 0;
+
+        while (currentDayNum <= daysInMonth) {
+          const dateRow = ws1.getRow(currentRow);
+          const valRow = ws1.getRow(currentRow + 1);
+          dateRow.height = 18;
+          valRow.height = 28;
+
+          let weekTotalDays = 0;
+          let weekTotalOt = 0;
+
+          for (let col = 0; col < 7; col++) {
+            const cellDate = dateRow.getCell(col + 1);
+            const cellVal = valRow.getCell(col + 1);
+            const isSunday = (col === 6);
+            const isSaturday = (col === 5);
+
+            if ((weekIndex === 1 && col < startCol) || currentDayNum > daysInMonth) {
+              cellDate.value = '';
+              cellVal.value = '';
+              const blankFill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } };
+              cellDate.fill = blankFill;
+              cellVal.fill = blankFill;
+              cellDate.border = thinBorder;
+              cellVal.border = thinBorder;
+            } else {
+              const dayStr = `${selectedMonth}-${String(currentDayNum).padStart(2, '0')}`;
+              let dayWork = 0;
+              let dayOt = 0;
+
+              if (team) {
+                const rec = monthAttendance.find(a => a.date === dayStr && a.teamId === team.id);
+                if (rec) {
+                  dayWork = rec.totalWorkDays || 0;
+                  dayOt = rec.otHours || 0;
+                  grandBlockAmount += (rec.totalAmount || 0);
+                }
+              } else {
+                const recs = monthAttendance.filter(a => a.date === dayStr);
+                recs.forEach(r => {
+                  dayWork += (r.totalWorkDays || 0);
+                  dayOt += (r.otHours || 0);
+                  grandBlockAmount += (r.totalAmount || 0);
+                });
+              }
+
+              weekTotalDays += dayWork;
+              weekTotalOt += dayOt;
+              grandBlockDays += dayWork;
+              grandBlockOt += dayOt;
+
+              // Dòng ngày
+              cellDate.value = `Ngày ${currentDayNum}`;
+              cellDate.font = { 
+                name: 'Times New Roman', 
+                size: 9, 
+                bold: isSunday, 
+                color: { argb: isSunday ? 'FFDC2626' : 'FF64748B' } 
+              };
+              cellDate.alignment = { vertical: 'middle', horizontal: 'right', indent: 1 };
+              cellDate.border = { top: thinBorder.top, left: thinBorder.left, right: thinBorder.right };
+
+              // Dòng số công
+              if (dayWork > 0) {
+                cellVal.value = dayOt > 0 ? `${dayWork} công (+${dayOt}h OT)` : `${dayWork} công`;
+                cellVal.font = { name: 'Times New Roman', size: 11, bold: true, color: { argb: 'FF1D4ED8' } };
+              } else {
+                cellVal.value = isSunday ? '(Nghỉ CN)' : '-';
+                cellVal.font = { name: 'Times New Roman', size: 10, italic: true, color: { argb: isSunday ? 'FFEF4444' : 'FF94A3B8' } };
+              }
+              cellVal.alignment = { vertical: 'middle', horizontal: 'center' };
+              cellVal.border = { bottom: thinBorder.bottom, left: thinBorder.left, right: thinBorder.right };
+
+              if (isSunday) {
+                const sunFill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
+                cellDate.fill = sunFill;
+                cellVal.fill = sunFill;
+              } else if (isSaturday) {
+                const satFill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } };
+                cellDate.fill = satFill;
+                cellVal.fill = satFill;
+              }
+
+              currentDayNum++;
+            }
+          }
+
+          // Cột 8: Tổng số công của Tuần
+          ws1.mergeCells(currentRow, 8, currentRow + 1, 8);
+          const weekCell = ws1.getCell(currentRow, 8);
+          weekCell.value = `${weekTotalDays} công\n${weekTotalOt > 0 ? `(${weekTotalOt}h OT)` : ''}`.trim();
+          weekCell.font = { name: 'Times New Roman', size: 11, bold: true, color: { argb: 'FF1E40AF' } };
+          weekCell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+          weekCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEFF6FF' } };
+          weekCell.border = darkBorder;
+
+          currentRow += 2;
+          weekIndex++;
         }
 
-        // Cột Tổng Công
-        const cellTotDays = row.getCell(4 + daysInMonth + 1);
-        cellTotDays.value = tDays;
-        cellTotDays.alignment = { vertical: 'middle', horizontal: 'center' };
-        cellTotDays.border = thinBorder;
-        cellTotDays.font = { name: 'Times New Roman', size: 10, bold: true };
+        // Dòng tổng kết tháng của khối lịch
+        ws1.mergeCells(currentRow, 1, currentRow, 5);
+        const sumLabel = ws1.getCell(currentRow, 1);
+        sumLabel.value = `TỔNG CỘNG THÁNG ${monthStr}/${yearStr}:`;
+        sumLabel.font = { name: 'Times New Roman', size: 11, bold: true };
+        sumLabel.alignment = { vertical: 'middle', horizontal: 'right', indent: 1 };
+        sumLabel.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+        sumLabel.border = darkBorder;
 
-        // Cột Tổng OT
-        const cellTotOt = row.getCell(4 + daysInMonth + 2);
-        cellTotOt.value = tOt;
-        cellTotOt.alignment = { vertical: 'middle', horizontal: 'center' };
-        cellTotOt.border = thinBorder;
-        cellTotOt.font = { name: 'Times New Roman', size: 10 };
+        for (let c = 1; c <= 5; c++) {
+          ws1.getCell(currentRow, c).border = darkBorder;
+          ws1.getCell(currentRow, c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+        }
 
-        // Cột Thành Tiền
-        const cellTotAmt = row.getCell(4 + daysInMonth + 3);
-        cellTotAmt.value = tAmount;
-        cellTotAmt.numFmt = '#,##0';
-        cellTotAmt.alignment = { vertical: 'middle', horizontal: 'right' };
-        cellTotAmt.border = thinBorder;
-        cellTotAmt.font = { name: 'Times New Roman', size: 10, bold: true };
+        ws1.mergeCells(currentRow, 6, currentRow, 7);
+        const sumDaysCell = ws1.getCell(currentRow, 6);
+        sumDaysCell.value = `${grandBlockDays} công ${grandBlockOt > 0 ? `| ${grandBlockOt}h OT` : ''}`;
+        sumDaysCell.font = { name: 'Times New Roman', size: 11, bold: true, color: { argb: 'FF059669' } };
+        sumDaysCell.alignment = { vertical: 'middle', horizontal: 'center' };
+        sumDaysCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFDF5' } };
+        sumDaysCell.border = darkBorder;
+        ws1.getCell(currentRow, 7).border = darkBorder;
 
-        grandTotalDays += tDays;
-        grandTotalOt += tOt;
-        grandTotalAmount += tAmount;
-        rowIdx++;
+        const sumAmtCell = ws1.getCell(currentRow, 8);
+        const totalCalc = team ? (grandBlockAmount || Math.round(grandBlockDays * (team.defaultRate || 0))) : grandBlockAmount;
+        sumAmtCell.value = totalCalc;
+        sumAmtCell.numFmt = '#,##0 "đ"';
+        sumAmtCell.font = { name: 'Times New Roman', size: 11, bold: true, color: { argb: 'FF059669' } };
+        sumAmtCell.alignment = { vertical: 'middle', horizontal: 'right' };
+        sumAmtCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFDF5' } };
+        sumAmtCell.border = darkBorder;
+        ws1.getRow(currentRow).height = 24;
+
+        currentRow += 3; // Cách khoảng giữa các khối
+      }
+
+      // Nếu không lọc đội nào: vẽ khối tổng hợp toàn công trường trước
+      if (!filterTeamId && targetTeams.length > 1) {
+        renderCalendarBlock(null, true);
+      }
+
+      // Vẽ từng đội
+      targetTeams.forEach(t => {
+        renderCalendarBlock(t, false);
       });
 
-      // DÒNG TỔNG CỘNG TOÀN CÔNG TRƯỜNG
-      const totRow = ws1.getRow(rowIdx);
-      totRow.height = 24;
-      ws1.mergeCells(rowIdx, 1, rowIdx, 4);
-      const cellTotLabel = totRow.getCell(1);
-      cellTotLabel.value = 'TỔNG CỘNG TOÀN CÔNG TRƯỜNG';
-      cellTotLabel.font = { name: 'Times New Roman', size: 10, bold: true };
-      cellTotLabel.alignment = { vertical: 'middle', horizontal: 'center' };
-
-      for (let c = 1; c <= 4; c++) {
-        totRow.getCell(c).border = doubleBottomBorder;
-        totRow.getCell(c).fill = headerFill;
-      }
-
-      for (let d = 1; d <= daysInMonth; d++) {
-        const cCell = totRow.getCell(4 + d);
-        cCell.value = colDayTotals[d - 1] || '';
-        cCell.font = { name: 'Times New Roman', size: 10, bold: true };
-        cCell.alignment = { vertical: 'middle', horizontal: 'center' };
-        cCell.border = doubleBottomBorder;
-        cCell.fill = headerFill;
-      }
-
-      const cellGrandDays = totRow.getCell(4 + daysInMonth + 1);
-      cellGrandDays.value = grandTotalDays;
-      cellGrandDays.font = { name: 'Times New Roman', size: 10, bold: true };
-      cellGrandDays.alignment = { vertical: 'middle', horizontal: 'center' };
-      cellGrandDays.border = doubleBottomBorder;
-      cellGrandDays.fill = headerFill;
-
-      const cellGrandOt = totRow.getCell(4 + daysInMonth + 2);
-      cellGrandOt.value = grandTotalOt;
-      cellGrandOt.font = { name: 'Times New Roman', size: 10, bold: true };
-      cellGrandOt.alignment = { vertical: 'middle', horizontal: 'center' };
-      cellGrandOt.border = doubleBottomBorder;
-      cellGrandOt.fill = headerFill;
-
-      const cellGrandAmt = totRow.getCell(4 + daysInMonth + 3);
-      cellGrandAmt.value = grandTotalAmount;
-      cellGrandAmt.numFmt = '#,##0';
-      cellGrandAmt.font = { name: 'Times New Roman', size: 10, bold: true };
-      cellGrandAmt.alignment = { vertical: 'middle', horizontal: 'right' };
-      cellGrandAmt.border = doubleBottomBorder;
-      cellGrandAmt.fill = headerFill;
-
-      // Khoảng cách đến khối chữ ký
-      rowIdx += 2;
-
-      // Dòng ngày tháng xuất bảng
+      // Khối Chữ Ký Nghiệm Thu 2 Bên (Cuối Sheet 1)
       const today = new Date();
       const dateStr = `Đà Lạt, ngày ${today.getDate()} tháng ${today.getMonth() + 1} năm ${today.getFullYear()}`;
-      ws1.mergeCells(rowIdx, totalCols1 - 5, rowIdx, totalCols1);
-      const cellSignDate = ws1.getCell(rowIdx, totalCols1 - 5);
+      ws1.mergeCells(currentRow, 5, currentRow, 8);
+      const cellSignDate = ws1.getCell(currentRow, 5);
       cellSignDate.value = dateStr;
       cellSignDate.font = { name: 'Times New Roman', size: 10, italic: true };
       cellSignDate.alignment = { vertical: 'middle', horizontal: 'center' };
-      rowIdx++;
+      currentRow++;
 
-      // KHỐI CHỮ KÝ 2 BÊN (LỰA CHỌN 2B)
-      ws1.mergeCells(rowIdx, 2, rowIdx, 4);
-      const cellLeftTitle = ws1.getCell(rowIdx, 2);
-      cellLeftTitle.value = 'ĐẠI DIỆN ĐỘI KHOÁN';
-      cellLeftTitle.font = { name: 'Times New Roman', size: 11, bold: true };
-      cellLeftTitle.alignment = { vertical: 'middle', horizontal: 'center' };
+      ws1.mergeCells(currentRow, 1, currentRow, 3);
+      const cLeftTitle = ws1.getCell(currentRow, 1);
+      cLeftTitle.value = 'ĐẠI DIỆN ĐỘI KHOÁN';
+      cLeftTitle.font = { name: 'Times New Roman', size: 11, bold: true };
+      cLeftTitle.alignment = { vertical: 'middle', horizontal: 'center' };
 
-      ws1.mergeCells(rowIdx, totalCols1 - 4, rowIdx, totalCols1);
-      const cellRightTitle = ws1.getCell(rowIdx, totalCols1 - 4);
-      cellRightTitle.value = 'NGƯỜI LẬP BẢNG';
-      cellRightTitle.font = { name: 'Times New Roman', size: 11, bold: true };
-      cellRightTitle.alignment = { vertical: 'middle', horizontal: 'center' };
-      rowIdx++;
+      ws1.mergeCells(currentRow, 5, currentRow, 8);
+      const cRightTitle = ws1.getCell(currentRow, 5);
+      cRightTitle.value = 'NGƯỜI LẬP BẢNG';
+      cRightTitle.font = { name: 'Times New Roman', size: 11, bold: true };
+      cRightTitle.alignment = { vertical: 'middle', horizontal: 'center' };
+      currentRow++;
 
-      ws1.mergeCells(rowIdx, 2, rowIdx, 4);
-      const cellLeftNote = ws1.getCell(rowIdx, 2);
-      cellLeftNote.value = '(Ký, ghi rõ họ tên)';
-      cellLeftNote.font = { name: 'Times New Roman', size: 9, italic: true };
-      cellLeftNote.alignment = { vertical: 'middle', horizontal: 'center' };
+      ws1.mergeCells(currentRow, 1, currentRow, 3);
+      const cLeftNote = ws1.getCell(currentRow, 1);
+      cLeftNote.value = '(Ký, ghi rõ họ tên)';
+      cLeftNote.font = { name: 'Times New Roman', size: 9, italic: true };
+      cLeftNote.alignment = { vertical: 'middle', horizontal: 'center' };
 
-      ws1.mergeCells(rowIdx, totalCols1 - 4, rowIdx, totalCols1);
-      const cellRightNote = ws1.getCell(rowIdx, totalCols1 - 4);
-      cellRightNote.value = '(Ký, ghi rõ họ tên)';
-      cellRightNote.font = { name: 'Times New Roman', size: 9, italic: true };
-      cellRightNote.alignment = { vertical: 'middle', horizontal: 'center' };
-
-      // Tự động căn chỉnh độ rộng cột (Auto-fit Widths)
-      ws1.getColumn(1).width = 6;
-      ws1.getColumn(2).width = Math.min(Math.max(maxTeamLen + 4, 32), 48);
-      ws1.getColumn(3).width = Math.min(Math.max(maxLeaderLen + 4, 18), 30);
-      ws1.getColumn(4).width = 14;
-
-      for (let d = 1; d <= daysInMonth; d++) {
-        ws1.getColumn(4 + d).width = 5.2;
-      }
-      ws1.getColumn(4 + daysInMonth + 1).width = 11;
-      ws1.getColumn(4 + daysInMonth + 2).width = 11;
-      ws1.getColumn(4 + daysInMonth + 3).width = 16;
+      ws1.mergeCells(currentRow, 5, currentRow, 8);
+      const cRightNote = ws1.getCell(currentRow, 5);
+      cRightNote.value = '(Ký, ghi rõ họ tên)';
+      cRightNote.font = { name: 'Times New Roman', size: 9, italic: true };
+      cRightNote.alignment = { vertical: 'middle', horizontal: 'center' };
 
       // ----------------------------------------------------
-      // SHEET 2: BẢNG TỔNG HỢP THANH TOÁN TIỀN KHOÁN
+      // SHEET 2: BẢNG TỔNG HỢP THANH TOÁN (10 CỘT GỌN GÀNG, IN A4 VUÔNG VỨC)
       // ----------------------------------------------------
       const ws2 = workbook.addWorksheet('Tong_Hop_Thanh_Toan', {
         pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 }
@@ -1271,16 +1343,8 @@ document.getElementById('btnExportExcel')?.addEventListener('click', async () =>
       const headerRow2 = ws2.getRow(4);
       headerRow2.height = 28;
       const colHeaders2 = [
-        'STT',
-        'Đội Khoán',
-        'Người Đại Diện',
-        'Số Điện Thoại',
-        'Đơn Giá/Công (đ)',
-        'Tổng Công',
-        'Tổng OT (h)',
-        'Tổng Tiền Công (đ)',
-        'Đã Tạm Ứng (đ)',
-        'Còn Lại Phải Trả (đ)'
+        'STT', 'Đội Khoán', 'Người Đại Diện', 'Số Điện Thoại', 'Đơn Giá/Công (đ)',
+        'Tổng Công', 'Tổng OT (h)', 'Tổng Tiền Công (đ)', 'Đã Tạm Ứng (đ)', 'Còn Lại Phải Trả (đ)'
       ];
 
       colHeaders2.forEach((val, idx) => {
@@ -1288,38 +1352,28 @@ document.getElementById('btnExportExcel')?.addEventListener('click', async () =>
         cell.value = val;
         cell.font = { name: 'Times New Roman', size: 10, bold: true };
         cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
-        cell.fill = headerFill;
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F4F7' } };
         cell.border = thinBorder;
       });
 
       let sRowIdx = 5;
-      let sumTotDays = 0;
-      let sumTotOt = 0;
-      let sumTotAmount = 0;
-      let sumTotAdvance = 0;
-      let sumTotRemaining = 0;
+      let sumTotDays = 0, sumTotOt = 0, sumTotAmount = 0, sumTotAdvance = 0, sumTotRemaining = 0;
 
-      state.teams.forEach((team, idx) => {
+      targetTeams.forEach((team, idx) => {
         const teamAtt = monthAttendance.filter(a => a.teamId === team.id);
         const teamAdv = monthAdvances.filter(adv => adv.teamId === team.id);
 
-        let tDays = 0;
-        let tOt = 0;
-        let tAmount = 0;
-        let tAdvance = 0;
-
+        let tDays = 0, tOt = 0, tAmount = 0, tAdvance = 0;
         teamAtt.forEach(a => {
           tDays += (a.totalWorkDays || 0);
           tOt += (a.otHours || 0);
           tAmount += (a.totalAmount || 0);
         });
-
         teamAdv.forEach(adv => {
           tAdvance += (adv.amount || 0);
         });
 
         const tRemaining = tAmount - tAdvance;
-
         const row = ws2.getRow(sRowIdx);
         row.height = 22;
 
@@ -1353,7 +1407,7 @@ document.getElementById('btnExportExcel')?.addEventListener('click', async () =>
         sRowIdx++;
       });
 
-      // DÒNG TỔNG CỘNG CHO SHEET 2
+      // Total Row Sheet 2
       const totRow2 = ws2.getRow(sRowIdx);
       totRow2.height = 24;
       ws2.mergeCells(sRowIdx, 1, sRowIdx, 5);
@@ -1362,9 +1416,16 @@ document.getElementById('btnExportExcel')?.addEventListener('click', async () =>
       cellTot2Label.font = { name: 'Times New Roman', size: 10, bold: true };
       cellTot2Label.alignment = { vertical: 'middle', horizontal: 'center' };
 
+      const doubleBottomBorder = {
+        top: { style: 'thin', color: { argb: 'FF000000' } },
+        left: { style: 'thin', color: { argb: 'FF000000' } },
+        bottom: { style: 'double', color: { argb: 'FF000000' } },
+        right: { style: 'thin', color: { argb: 'FF000000' } }
+      };
+
       for (let c = 1; c <= 5; c++) {
         totRow2.getCell(c).border = doubleBottomBorder;
-        totRow2.getCell(c).fill = headerFill;
+        totRow2.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F4F7' } };
       }
 
       const totColsValues = [
@@ -1381,17 +1442,17 @@ document.getElementById('btnExportExcel')?.addEventListener('click', async () =>
         cell.font = { name: 'Times New Roman', size: 10, bold: true };
         cell.alignment = { vertical: 'middle', horizontal: tc.align };
         cell.border = doubleBottomBorder;
-        cell.fill = headerFill;
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F4F7' } };
         if (tc.fmt) cell.numFmt = tc.fmt;
       });
 
-      // Khối chữ ký Sheet 2 (Lựa chọn 2B)
+      // Signatures Sheet 2
       sRowIdx += 2;
       ws2.mergeCells(sRowIdx, 7, sRowIdx, 10);
-      const cellSignDate2 = ws2.getCell(sRowIdx, 7);
-      cellSignDate2.value = dateStr;
-      cellSignDate2.font = { name: 'Times New Roman', size: 10, italic: true };
-      cellSignDate2.alignment = { vertical: 'middle', horizontal: 'center' };
+      const cSignDate2 = ws2.getCell(sRowIdx, 7);
+      cSignDate2.value = dateStr;
+      cSignDate2.font = { name: 'Times New Roman', size: 10, italic: true };
+      cSignDate2.alignment = { vertical: 'middle', horizontal: 'center' };
       sRowIdx++;
 
       ws2.mergeCells(sRowIdx, 2, sRowIdx, 4);
@@ -1419,10 +1480,10 @@ document.getElementById('btnExportExcel')?.addEventListener('click', async () =>
       c2RightNote.font = { name: 'Times New Roman', size: 9, italic: true };
       c2RightNote.alignment = { vertical: 'middle', horizontal: 'center' };
 
-      // Set column widths Sheet 2
+      // Set widths for Sheet 2
       ws2.getColumn(1).width = 6;
-      ws2.getColumn(2).width = Math.min(Math.max(maxTeamLen + 4, 32), 48);
-      ws2.getColumn(3).width = Math.min(Math.max(maxLeaderLen + 4, 18), 30);
+      ws2.getColumn(2).width = 34;
+      ws2.getColumn(3).width = 22;
       ws2.getColumn(4).width = 15;
       ws2.getColumn(5).width = 16;
       ws2.getColumn(6).width = 12;
@@ -1437,75 +1498,24 @@ document.getElementById('btnExportExcel')?.addEventListener('click', async () =>
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      const fileName = `Bang_Cham_Cong_Doi_Khoan_${selectedMonth}.xlsx`;
+      const fileName = `Lich_Cham_Cong_Thang_${selectedMonth}.xlsx`;
       a.download = fileName;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
-      showToast(`Đã xuất file Excel chuẩn in ấn A4: ${fileName}`, 'success');
+      showToast(`Đã xuất file Lịch Chấm Công: ${fileName}`, 'success');
       return;
     } catch (err) {
-      console.error('Lỗi xuất ExcelJS, chuyển sang fallback SheetJS:', err);
+      console.error('Lỗi xuất ExcelJS Calendar Grid, chuyển sang fallback:', err);
     }
   }
 
-  // PHƯƠNG ÁN DỰ PHÒNG: SHEETJS NẾU CHƯA CÓ EXCELJS
+  // Fallback đơn giản nếu không tải được ExcelJS
   if (typeof XLSX === 'undefined') {
     showToast('Thư viện Excel đang tải, vui lòng thử lại sau 2 giây', 'error');
     return;
   }
-
-  const matrixHeaders = ['STT', 'Đội Khoán', 'Đại Diện', 'Đơn Giá (đ)'];
-  for (let d = 1; d <= daysInMonth; d++) {
-    matrixHeaders.push(`N${d}`);
-  }
-  matrixHeaders.push('Tổng Công', 'Tổng OT (h)', 'Thành Tiền (đ)');
-
-  const matrixRows = [
-    [`BẢNG CHẤM CÔNG ĐỘI KHOÁN - THÁNG ${selectedMonth}`],
-    [`Dự án: ${state.settings.projectName || 'Chấm công đội_HIREE'}`],
-    [],
-    matrixHeaders
-  ];
-
-  let sumDaysFallback = 0;
-  let sumOtFallback = 0;
-  let sumAmtFallback = 0;
-
-  state.teams.forEach((team, idx) => {
-    const row = [idx + 1, team.name, team.leader || '', team.defaultRate || 0];
-    let tDays = 0;
-    let tOt = 0;
-    let tAmount = 0;
-
-    for (let d = 1; d <= daysInMonth; d++) {
-      const dayStr = `${selectedMonth}-${String(d).padStart(2, '0')}`;
-      const rec = monthAttendance.find(a => a.date === dayStr && a.teamId === team.id);
-      if (rec && (rec.totalWorkDays > 0 || rec.otHours > 0)) {
-        tDays += rec.totalWorkDays;
-        tOt += (rec.otHours || 0);
-        tAmount += (rec.totalAmount || 0);
-        row.push(rec.totalWorkDays);
-      } else {
-        row.push('');
-      }
-    }
-
-    row.push(tDays, tOt, tAmount);
-    matrixRows.push(row);
-    sumDaysFallback += tDays;
-    sumOtFallback += tOt;
-    sumAmtFallback += tAmount;
-  });
-
-  // Total row fallback
-  const fallbackTotRow = ['TỔNG CỘNG', '', '', ''];
-  for (let d = 1; d <= daysInMonth; d++) fallbackTotRow.push('');
-  fallbackTotRow.push(sumDaysFallback, sumOtFallback, sumAmtFallback);
-  matrixRows.push(fallbackTotRow);
-
-  // Sheet 2 Fallback
   const summaryHeaders = ['STT', 'Đội Khoán', 'Người Đại Diện', 'SĐT', 'Đơn Giá/Công', 'Tổng Công', 'Tổng OT', 'Tổng Tiền Công', 'Đã Tạm Ứng', 'Còn Lại Phải Trả'];
   const summaryRows = [
     [`BẢNG TỔNG HỢP THANH TOÁN TIỀN KHOÁN - THÁNG ${selectedMonth}`],
@@ -1513,8 +1523,7 @@ document.getElementById('btnExportExcel')?.addEventListener('click', async () =>
     [],
     summaryHeaders
   ];
-
-  state.teams.forEach((team, idx) => {
+  targetTeams.forEach((team, idx) => {
     const teamAtt = monthAttendance.filter(a => a.teamId === team.id);
     const teamAdv = monthAdvances.filter(adv => adv.teamId === team.id);
     let tDays = 0, tOt = 0, tAmount = 0, tAdvance = 0;
@@ -1531,26 +1540,10 @@ document.getElementById('btnExportExcel')?.addEventListener('click', async () =>
       team.defaultRate || 0, tDays, tOt, tAmount, tAdvance, tAmount - tAdvance
     ]);
   });
-
   const wb = XLSX.utils.book_new();
-  const wsMatrix = XLSX.utils.aoa_to_sheet(matrixRows);
   const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows);
-
-  // Set auto columns in SheetJS
-  const colW1 = [{ wch: 6 }, { wch: Math.max(maxTeamLen + 4, 32) }, { wch: Math.max(maxLeaderLen + 4, 18) }, { wch: 14 }];
-  for (let d = 1; d <= daysInMonth; d++) colW1.push({ wch: 6 });
-  colW1.push({ wch: 12 }, { wch: 12 }, { wch: 18 });
-  wsMatrix['!cols'] = colW1;
-
-  wsSummary['!cols'] = [
-    { wch: 6 }, { wch: Math.max(maxTeamLen + 4, 32) }, { wch: Math.max(maxLeaderLen + 4, 18) },
-    { wch: 15 }, { wch: 16 }, { wch: 12 }, { wch: 12 }, { wch: 18 }, { wch: 16 }, { wch: 18 }
-  ];
-
-  XLSX.utils.book_append_sheet(wb, wsMatrix, 'Bang_Cham_Cong');
   XLSX.utils.book_append_sheet(wb, wsSummary, 'Tong_Hop_Thanh_Toan');
-
-  const fileName = `Bang_Cham_Cong_Doi_Khoan_${selectedMonth}.xlsx`;
+  const fileName = `Lich_Cham_Cong_Thang_${selectedMonth}.xlsx`;
   XLSX.writeFile(wb, fileName);
   showToast(`Đã xuất file Excel: ${fileName}`, 'success');
 });

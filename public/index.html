@@ -44,7 +44,7 @@
         <div>
           <h1 class="text-lg md:text-xl font-bold tracking-tight flex items-center gap-2">
             Chấm công đội_HIREE
-            <span class="text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 px-2 py-0.5 rounded-full">v3.2</span>
+            <span class="text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 px-2 py-0.5 rounded-full">v3.3</span>
           </h1>
           <p id="topProjectName" class="text-xs text-blue-200">Chấm công đội_HIREE • Quản lý công nhật & đội khoán</p>
         </div>
@@ -257,14 +257,16 @@
           <table class="w-full text-left text-xs md:text-sm border-collapse">
             <thead class="bg-slate-100 text-slate-700 font-bold uppercase text-[11px] tracking-wider border-b border-slate-200">
               <tr>
-                <th class="py-3 px-4 w-12 text-center">STT</th>
-                <th class="py-3 px-4">Họ và Tên Thợ</th>
-                <th class="py-3 px-4 w-28">Vai Trò</th>
-                <th class="py-3 px-4 w-44 text-center">Chấm Nhanh</th>
-                <th class="py-3 px-4 w-24 text-center">Số Công</th>
-                <th class="py-3 px-4 w-24 text-center">Tăng Ca (h)</th>
-                <th class="py-3 px-4">Ghi Chú Cá Nhân</th>
-                <th class="py-3 px-4 w-16 text-center">Thao tác</th>
+                <th class="py-3 px-3 w-10 text-center">STT</th>
+                <th class="py-3 px-3">Họ và Tên Thợ</th>
+                <th class="py-3 px-3 w-28">Vai Trò</th>
+                <th class="py-3 px-3 w-28 text-right">Đơn Giá</th>
+                <th class="py-3 px-3 w-40 text-center">Chấm Nhanh</th>
+                <th class="py-3 px-3 w-20 text-center">Số Công</th>
+                <th class="py-3 px-3 w-20 text-center">Tăng Ca (h)</th>
+                <th class="py-3 px-3 w-28 text-right">Thành Tiền</th>
+                <th class="py-3 px-3">Ghi Chú</th>
+                <th class="py-3 px-3 w-20 text-center">Thao tác</th>
               </tr>
             </thead>
             <tbody id="detailWorkerTableBody" class="divide-y divide-slate-100">
@@ -308,7 +310,7 @@
         <div class="flex items-center gap-2">
           <button id="btnExportExcel" class="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-lg shadow transition text-xs md:text-sm">
             <i data-lucide="file-spreadsheet" class="w-4 h-4"></i>
-            <span>XUẤT EXCEL (.XLSX)</span>
+            <span>XUẤT LỊCH CÔNG & THANH TOÁN (.XLSX)</span>
           </button>
           <button id="btnPrintReport" class="flex items-center gap-2 bg-slate-700 hover:bg-slate-800 text-white font-bold px-4 py-2 rounded-lg shadow transition text-xs md:text-sm">
             <i data-lucide="printer" class="w-4 h-4"></i>
@@ -670,6 +672,11 @@
             <option value="Đội trưởng">Đội trưởng</option>
             <option value="Học việc">Học việc</option>
           </select>
+        </div>
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Đơn Giá Riêng Của Thợ (VNĐ/công):</label>
+          <input type="number" id="workerModalRate" placeholder="Để trống nếu tính theo giá đội" class="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          <p class="text-[11px] text-slate-500 mt-1">💡 Ví dụ: Thợ chính 500000, Thợ phụ 350000. Để trống = tự tính theo giá chung của đội.</p>
         </div>
         <div>
           <label class="block font-semibold text-slate-700 mb-1">Số Điện Thoại:</label>
