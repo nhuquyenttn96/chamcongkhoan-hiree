@@ -28,7 +28,9 @@ try {
   if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
 } catch (e) {}
 
-// Đọc dữ liệu: Ưu tiên Cloud KV (nếu chạy trên Vercel), fallback sang local JSON
+const TMP_DATA_FILE = path.join('/tmp', 'chamcong_data.json');
+
+// Đọc dữ liệu: Ưu tiên Cloud KV, fallback sang /tmp (Vercel) hoặc local JSON
 async function readData() {
   const kvUrl = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
   const kvToken = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -47,20 +49,28 @@ async function readData() {
     }
   }
 
+  // Nếu trên Vercel, kiểm tra file trong /tmp trước
+  if (process.env.VERCEL && fs.existsSync(TMP_DATA_FILE)) {
+    try {
+      const raw = fs.readFileSync(TMP_DATA_FILE, 'utf8');
+      return JSON.parse(raw);
+    } catch (e) {}
+  }
+
   // Fallback đọc file local
   try {
-    if (!fs.existsSync(DATA_FILE)) {
-      return { settings: { projectName: "Chấm công đội_HIREE" }, teams: [], attendance: [], advances: [] };
+    const filePath = fs.existsSync(DATA_FILE) ? DATA_FILE : path.join(__dirname, 'data', 'chamcong_data.json');
+    if (fs.existsSync(filePath)) {
+      const raw = fs.readFileSync(filePath, 'utf8');
+      return JSON.parse(raw);
     }
-    const raw = fs.readFileSync(DATA_FILE, 'utf8');
-    return JSON.parse(raw);
   } catch (error) {
     console.error('Lỗi khi đọc file dữ liệu:', error);
-    return { settings: { projectName: "Chấm công đội_HIREE" }, teams: [], attendance: [], advances: [] };
   }
+  return { settings: { projectName: "Chấm công đội_HIREE" }, teams: [], attendance: [], advances: [] };
 }
 
-// Lưu dữ liệu: Ghi đồng thời lên Cloud KV và local JSON
+// Lưu dữ liệu: Ghi đồng thời lên Cloud KV, /tmp và local JSON
 async function saveData(data) {
   const kvUrl = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
   const kvToken = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -80,10 +90,18 @@ async function saveData(data) {
     }
   }
 
+  const jsonString = JSON.stringify(data, null, 2);
+
+  // Nếu trên Vercel, ghi vào /tmp
+  if (process.env.VERCEL) {
+    try {
+      fs.writeFileSync(TMP_DATA_FILE, jsonString, 'utf8');
+    } catch (e) {}
+  }
+
   // Ghi file local an toàn nếu có thể ghi đĩa
   try {
     const tempFile = `${DATA_FILE}.tmp`;
-    const jsonString = JSON.stringify(data, null, 2);
     fs.writeFileSync(tempFile, jsonString, 'utf8');
     fs.renameSync(tempFile, DATA_FILE);
 
