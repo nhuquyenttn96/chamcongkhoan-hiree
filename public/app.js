@@ -1014,7 +1014,7 @@ document.getElementById('reportFilterTeam')?.addEventListener('change', renderRe
 // XUẤT EXCEL DẠNG LỊCH THÁNG (CALENDAR GRID 7 CỘT THỨ 2 -> CHỦ NHẬT ĐỎ) + TỔNG HỢP THANH TOÁN
 document.getElementById('btnExportExcel')?.addEventListener('click', async () => {
   const selectedMonth = document.getElementById('reportSelectMonth')?.value || state.selectedMonth;
-  const filterTeamId = document.getElementById('reportFilterTeam')?.value || '';
+  const rawFilterTeam = document.getElementById('reportFilterTeam')?.value || 'ALL';
   const [yearStr, monthStr] = selectedMonth.split('-');
   const year = parseInt(yearStr);
   const month = parseInt(monthStr);
@@ -1023,7 +1023,8 @@ document.getElementById('btnExportExcel')?.addEventListener('click', async () =>
   const monthAttendance = state.attendance.filter(a => a.date && a.date.startsWith(selectedMonth));
   const monthAdvances = state.advances.filter(adv => adv.date && adv.date.startsWith(selectedMonth));
 
-  const targetTeams = filterTeamId ? state.teams.filter(t => t.id === filterTeamId) : state.teams;
+  const isFilterAll = (!rawFilterTeam || rawFilterTeam === 'ALL');
+  const targetTeams = isFilterAll ? state.teams : state.teams.filter(t => t.id === rawFilterTeam);
 
   // PHƯƠNG ÁN CHÍNH: EXCELJS - DẠNG LỊCH THÁNG 7 CỘT CHUẨN ĐẸP A4
   if (typeof ExcelJS !== 'undefined') {
@@ -1271,15 +1272,19 @@ document.getElementById('btnExportExcel')?.addEventListener('click', async () =>
         currentRow += 3; // Cách khoảng giữa các khối
       }
 
-      // Nếu không lọc đội nào: vẽ khối tổng hợp toàn công trường trước
-      if (!filterTeamId && targetTeams.length > 1) {
+      // Nếu chọn Tất cả các đội và có từ 2 đội trở lên: vẽ khối tổng hợp toàn công trường trước
+      if (isFilterAll && targetTeams.length > 1) {
         renderCalendarBlock(null, true);
       }
 
-      // Vẽ từng đội
-      targetTeams.forEach(t => {
-        renderCalendarBlock(t, false);
-      });
+      // Vẽ từng đội (hoặc khối duy nhất nếu chưa có đội)
+      if (targetTeams.length > 0) {
+        targetTeams.forEach(t => {
+          renderCalendarBlock(t, false);
+        });
+      } else {
+        renderCalendarBlock(null, true);
+      }
 
       // Khối Chữ Ký Nghiệm Thu 2 Bên (Cuối Sheet 1)
       const today = new Date();
