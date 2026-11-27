@@ -1,0 +1,21 @@
+{
+  "name": "cham-cong-doi-khoan",
+  "version": "1.0.0",
+  "description": "Ứng dụng chấm công đội khoán - Hỗ trợ chấm tổng hợp và chấm chi tiết",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [
+    "cham-cong",
+    "doi-khoan",
+    "quan-ly-cong-truong"
+  ],
+  "author": "Antigravity",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "qrcode": "^1.5.4"
+  }
+}
