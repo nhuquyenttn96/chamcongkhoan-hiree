@@ -1468,7 +1468,10 @@ async function checkOnlineStatus(isManual = false) {
       }
 
       if (statusText) {
-        if (json.publicUrl) {
+        if (json.isVercel) {
+          statusText.textContent = '🟢 Đang chạy trên Vercel Cloud 24/7 (chamcongkhoan-hiree.vercel.app)';
+          statusText.className = 'text-emerald-700 font-bold';
+        } else if (json.publicUrl) {
           statusText.textContent = '🟢 Kênh Online Toàn Cầu Đang Sẵn Sàng (4G/5G)';
           statusText.className = 'text-emerald-700 font-bold';
         } else {

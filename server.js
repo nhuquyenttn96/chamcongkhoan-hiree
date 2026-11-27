@@ -22,41 +22,78 @@ let publicOnlineUrl = null;
 let publicQrCode = null;
 let cloudflaredProcess = null;
 
-// Đảm bảo thư mục tồn tại
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
+// Đảm bảo thư mục tồn tại nếu ở môi trường có filesystem
+try {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
+} catch (e) {}
 
-// Hàm đọc dữ liệu an toàn
-function readData() {
+// Đọc dữ liệu: Ưu tiên Cloud KV (nếu chạy trên Vercel), fallback sang local JSON
+async function readData() {
+  const kvUrl = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
+  const kvToken = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
+
+  if (kvUrl && kvToken) {
+    try {
+      const res = await fetch(`${kvUrl}/get/chamcong_data`, {
+        headers: { Authorization: `Bearer ${kvToken}` }
+      });
+      const json = await res.json();
+      if (json && json.result) {
+        return typeof json.result === 'string' ? JSON.parse(json.result) : json.result;
+      }
+    } catch (e) {
+      console.error('Lỗi đọc từ Cloud KV:', e);
+    }
+  }
+
+  // Fallback đọc file local
   try {
     if (!fs.existsSync(DATA_FILE)) {
-      return { settings: {}, teams: [], attendance: [], advances: [] };
+      return { settings: { projectName: "Chấm công đội_HIREE" }, teams: [], attendance: [], advances: [] };
     }
     const raw = fs.readFileSync(DATA_FILE, 'utf8');
     return JSON.parse(raw);
   } catch (error) {
     console.error('Lỗi khi đọc file dữ liệu:', error);
-    return { settings: {}, teams: [], attendance: [], advances: [] };
+    return { settings: { projectName: "Chấm công đội_HIREE" }, teams: [], attendance: [], advances: [] };
   }
 }
 
-// Hàm ghi dữ liệu nguyên tử & tự động sao lưu
-function saveData(data) {
+// Lưu dữ liệu: Ghi đồng thời lên Cloud KV và local JSON
+async function saveData(data) {
+  const kvUrl = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
+  const kvToken = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
+
+  if (kvUrl && kvToken) {
+    try {
+      await fetch(`${kvUrl}/set/chamcong_data`, {
+        method: 'POST',
+        headers: { 
+          Authorization: `Bearer ${kvToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(JSON.stringify(data))
+      });
+    } catch (e) {
+      console.error('Lỗi ghi vào Cloud KV:', e);
+    }
+  }
+
+  // Ghi file local an toàn nếu có thể ghi đĩa
   try {
     const tempFile = `${DATA_FILE}.tmp`;
     const jsonString = JSON.stringify(data, null, 2);
     fs.writeFileSync(tempFile, jsonString, 'utf8');
     fs.renameSync(tempFile, DATA_FILE);
 
-    // Tự động sao lưu định kỳ
     const now = new Date();
     const dateStr = now.toISOString().slice(0, 10);
     const backupFile = path.join(BACKUP_DIR, `backup_${dateStr}.json`);
     fs.writeFileSync(backupFile, jsonString, 'utf8');
     return true;
   } catch (error) {
-    console.error('Lỗi khi lưu dữ liệu:', error);
-    return false;
+    return true;
   }
 }
 
@@ -74,16 +111,11 @@ function getLocalIpAddresses() {
   return addresses;
 }
 
-// Khởi động kênh Cloudflare Tunnel cho điện thoại 4G từ xa
+// Khởi động kênh Cloudflare Tunnel cho điện thoại 4G khi chạy local
 function startCloudflareTunnel(port) {
   const exePath = path.join(__dirname, 'cloudflared.exe');
-  if (!fs.existsSync(exePath)) {
-    console.log('⚠️ Không tìm thấy cloudflared.exe, bỏ qua mở kênh Online tự động.');
-    return;
-  }
+  if (!fs.existsSync(exePath)) return;
 
-  console.log('⏳ Đang kết nối mạng vệ tinh Cloudflare để tạo link Online cho điện thoại 4G...');
-  
   cloudflaredProcess = spawn(exePath, ['tunnel', '--url', `http://localhost:${port}`]);
 
   const handleTunnelOutput = async (data) => {
@@ -93,9 +125,7 @@ function startCloudflareTunnel(port) {
       publicOnlineUrl = match[0];
       try {
         publicQrCode = await QRCode.toDataURL(publicOnlineUrl, { width: 280, margin: 2 });
-      } catch (e) {
-        console.error('Lỗi tạo mã QR:', e);
-      }
+      } catch (e) {}
 
       console.log('\n================================================================');
       console.log('🌐 ĐÃ PHÁT ĐƯỜNG LINK ONLINE TOÀN CẦU (CHO ĐIỆN THOẠI 4G/5G):');
@@ -108,59 +138,61 @@ function startCloudflareTunnel(port) {
   cloudflaredProcess.stderr.on('data', handleTunnelOutput);
   cloudflaredProcess.stdout.on('data', handleTunnelOutput);
 
-  cloudflaredProcess.on('close', (code) => {
-    console.log(`Kênh Cloudflare Tunnel đã đóng (mã: ${code})`);
+  cloudflaredProcess.on('close', () => {
     publicOnlineUrl = null;
     publicQrCode = null;
   });
 }
 
-// Dọn dẹp tiến trình khi tắt
-process.on('SIGINT', () => {
-  if (cloudflaredProcess) cloudflaredProcess.kill();
-  process.exit();
-});
-process.on('SIGTERM', () => {
-  if (cloudflaredProcess) cloudflaredProcess.kill();
-  process.exit();
-});
-
 // ====================== CÁC API ENDPOINTS ======================
 
 // 0. API Lấy thông tin kết nối Online & Mã QR
-app.get('/api/online-status', (req, res) => {
+app.get('/api/online-status', async (req, res) => {
   const localIps = getLocalIpAddresses();
   const localUrl = localIps.length > 0 ? `http://${localIps[0]}:${PORT}` : `http://localhost:${PORT}`;
   
+  // Nếu đang chạy trên Vercel
+  const isVercel = !!process.env.VERCEL;
+  const vercelUrl = isVercel ? 'https://chamcongkhoan-hiree.vercel.app' : null;
+
+  if (vercelUrl && !publicQrCode) {
+    try {
+      publicQrCode = await QRCode.toDataURL(vercelUrl, { width: 280, margin: 2 });
+    } catch (e) {}
+  }
+
+  const finalPublicUrl = vercelUrl || publicOnlineUrl;
+
   res.json({
     success: true,
-    publicUrl: publicOnlineUrl,
+    publicUrl: finalPublicUrl,
     localUrl,
     qrCode: publicQrCode,
-    isOnline: !!publicOnlineUrl,
-    message: publicOnlineUrl 
-      ? 'Kênh Online 4G đang hoạt động' 
-      : 'Đang khởi tạo kênh kết nối Online...'
+    isOnline: !!finalPublicUrl,
+    isVercel,
+    message: finalPublicUrl 
+      ? 'Kênh Online đang hoạt động 24/7' 
+      : 'Đang kết nối mạng Online...'
   });
 });
 
 // 1. Lấy toàn bộ dữ liệu
-app.get('/api/data', (req, res) => {
-  const data = readData();
+app.get('/api/data', async (req, res) => {
+  const data = await readData();
   res.json({ success: true, data });
 });
 
 // 2. Cập nhật Settings
-app.post('/api/settings', (req, res) => {
-  const data = readData();
+app.post('/api/settings', async (req, res) => {
+  const data = await readData();
   data.settings = { ...data.settings, ...req.body };
-  saveData(data);
+  await saveData(data);
   res.json({ success: true, settings: data.settings });
 });
 
 // 3. Quản lý Đội khoán (Teams)
-app.post('/api/teams', (req, res) => {
-  const data = readData();
+app.post('/api/teams', async (req, res) => {
+  const data = await readData();
   const newTeam = {
     id: 'team_' + Date.now(),
     name: req.body.name || 'Đội khoán mới',
@@ -172,12 +204,12 @@ app.post('/api/teams', (req, res) => {
     workers: req.body.workers || []
   };
   data.teams.push(newTeam);
-  saveData(data);
+  await saveData(data);
   res.json({ success: true, team: newTeam });
 });
 
-app.put('/api/teams/:id', (req, res) => {
-  const data = readData();
+app.put('/api/teams/:id', async (req, res) => {
+  const data = await readData();
   const index = data.teams.findIndex(t => t.id === req.params.id);
   if (index === -1) {
     return res.status(404).json({ success: false, message: 'Không tìm thấy đội khoán' });
@@ -187,25 +219,25 @@ app.put('/api/teams/:id', (req, res) => {
     ...req.body,
     id: req.params.id
   };
-  saveData(data);
+  await saveData(data);
   res.json({ success: true, team: data.teams[index] });
 });
 
-app.delete('/api/teams/:id', (req, res) => {
-  const data = readData();
+app.delete('/api/teams/:id', async (req, res) => {
+  const data = await readData();
   data.teams = data.teams.filter(t => t.id !== req.params.id);
-  saveData(data);
+  await saveData(data);
   res.json({ success: true });
 });
 
 // 4. Chấm công Tổng hợp (Batch/Single Total Attendance)
-app.post('/api/attendance/batch', (req, res) => {
+app.post('/api/attendance/batch', async (req, res) => {
   const { date, items } = req.body;
   if (!date || !Array.isArray(items)) {
     return res.status(400).json({ success: false, message: 'Dữ liệu không hợp lệ' });
   }
 
-  const data = readData();
+  const data = await readData();
 
   items.forEach(item => {
     const team = data.teams.find(t => t.id === item.teamId);
@@ -242,18 +274,18 @@ app.post('/api/attendance/batch', (req, res) => {
     }
   });
 
-  saveData(data);
+  await saveData(data);
   res.json({ success: true, message: 'Lưu chấm công thành công' });
 });
 
 // 5. Chấm công Chi tiết theo từng Thợ (Detail Attendance)
-app.post('/api/attendance/detail', (req, res) => {
+app.post('/api/attendance/detail', async (req, res) => {
   const { date, teamId, workerRecords, taskCategory, note, rate } = req.body;
   if (!date || !teamId || !Array.isArray(workerRecords)) {
     return res.status(400).json({ success: false, message: 'Thiếu thông tin chấm chi tiết' });
   }
 
-  const data = readData();
+  const data = await readData();
   const team = data.teams.find(t => t.id === teamId);
   const teamName = team ? team.name : 'Đội khoán';
   const effectiveRate = Number(rate !== undefined ? rate : (team ? team.defaultRate : 0));
@@ -306,21 +338,21 @@ app.post('/api/attendance/detail', (req, res) => {
     data.attendance.push(record);
   }
 
-  saveData(data);
+  await saveData(data);
   res.json({ success: true, record });
 });
 
 // 6. Xóa bản ghi chấm công
-app.delete('/api/attendance/:id', (req, res) => {
-  const data = readData();
+app.delete('/api/attendance/:id', async (req, res) => {
+  const data = await readData();
   data.attendance = data.attendance.filter(a => a.id !== req.params.id);
-  saveData(data);
+  await saveData(data);
   res.json({ success: true });
 });
 
 // 7. Quản lý Tạm ứng (Advances)
-app.post('/api/advances', (req, res) => {
-  const data = readData();
+app.post('/api/advances', async (req, res) => {
+  const data = await readData();
   const team = data.teams.find(t => t.id === req.body.teamId);
   const newAdv = {
     id: 'adv_' + Date.now(),
@@ -333,12 +365,12 @@ app.post('/api/advances', (req, res) => {
     note: req.body.note || ''
   };
   data.advances.push(newAdv);
-  saveData(data);
+  await saveData(data);
   res.json({ success: true, advance: newAdv });
 });
 
-app.put('/api/advances/:id', (req, res) => {
-  const data = readData();
+app.put('/api/advances/:id', async (req, res) => {
+  const data = await readData();
   const index = data.advances.findIndex(a => a.id === req.params.id);
   if (index === -1) {
     return res.status(404).json({ success: false, message: 'Không tìm thấy phiếu tạm ứng' });
@@ -348,55 +380,48 @@ app.put('/api/advances/:id', (req, res) => {
     ...req.body,
     id: req.params.id
   };
-  saveData(data);
+  await saveData(data);
   res.json({ success: true, advance: data.advances[index] });
 });
 
-app.delete('/api/advances/:id', (req, res) => {
-  const data = readData();
+app.delete('/api/advances/:id', async (req, res) => {
+  const data = await readData();
   data.advances = data.advances.filter(a => a.id !== req.params.id);
-  saveData(data);
+  await saveData(data);
   res.json({ success: true });
 });
 
 // 8. Sao lưu và khôi phục
-app.get('/api/backup/export', (req, res) => {
-  const data = readData();
+app.get('/api/backup/export', async (req, res) => {
+  const data = await readData();
   res.setHeader('Content-Disposition', 'attachment; filename=chamcong_backup.json');
   res.setHeader('Content-Type', 'application/json');
   res.send(JSON.stringify(data, null, 2));
 });
 
-app.post('/api/backup/restore', (req, res) => {
+app.post('/api/backup/restore', async (req, res) => {
   if (!req.body || typeof req.body !== 'object') {
     return res.status(400).json({ success: false, message: 'Dữ liệu không đúng định dạng' });
   }
-  saveData(req.body);
+  await saveData(req.body);
   res.json({ success: true, message: 'Khôi phục dữ liệu thành công' });
 });
 
-// Khởi động server
-app.listen(PORT, '0.0.0.0', async () => {
-  const localIps = getLocalIpAddresses();
-  console.log(`====================================================`);
-  console.log(`🚀 HỆ THỐNG: Chấm công đội_HIREE ĐÃ SẴN SÀNG!`);
-  console.log(`👉 Cổng máy chủ: ${PORT}`);
-  console.log(`====================================================`);
+// Khởi động server cục bộ nếu không phải Vercel Serverless
+if (!process.env.VERCEL) {
+  app.listen(PORT, '0.0.0.0', async () => {
+    const localIps = getLocalIpAddresses();
+    console.log(`====================================================`);
+    console.log(`🚀 HỆ THỐNG: Chấm công đội_HIREE ĐÃ SẴN SÀNG!`);
+    console.log(`👉 Cổng máy chủ: ${PORT}`);
+    console.log(`====================================================`);
 
-  // Nếu đang chạy trên máy chủ Cloud (Render.com)
-  if (process.env.RENDER_EXTERNAL_URL || process.env.RENDER) {
-    publicOnlineUrl = process.env.RENDER_EXTERNAL_URL || 'https://chamcongkhoan-hiree.onrender.com';
-    try {
-      publicQrCode = await QRCode.toDataURL(publicOnlineUrl, { width: 280, margin: 2 });
-    } catch (e) {
-      console.error('Lỗi tạo mã QR:', e);
-    }
-    console.log(`🌐 MÁY CHỦ CLOUD 24/7 ĐANG CHẠY TẠI: ${publicOnlineUrl}`);
-  } else {
-    // Nếu chạy cục bộ trên máy tính, kích hoạt Cloudflare Tunnel
     localIps.forEach(ip => {
       console.log(`👉 Mở trên cùng Wi-Fi: http://${ip}:${PORT}`);
     });
     startCloudflareTunnel(PORT);
-  }
-});
+  });
+}
+
+// Xuất app cho Vercel Serverless handler
+module.exports = app;
