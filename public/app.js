@@ -177,16 +177,61 @@ function switchTab(tabId) {
   }
 }
 
-// Tải dữ liệu ban đầu từ Backend
+// Tự động lưu bản sao lưu vào bộ nhớ trình duyệt điện thoại/máy tính
+function saveLocalBackup() {
+  try {
+    const backupObj = {
+      settings: state.settings,
+      teams: state.teams,
+      attendance: state.attendance,
+      advances: state.advances,
+      savedAt: new Date().toISOString()
+    };
+    localStorage.setItem('hiree_chamcong_backup_v1', JSON.stringify(backupObj));
+  } catch (e) {
+    console.warn('Không thể ghi vào LocalStorage:', e);
+  }
+}
+
+// Tải dữ liệu ban đầu từ Backend kết hợp cơ chế Tự Phục Hồi Đa Tầng (LocalStorage Shield)
 async function fetchInitialData() {
   try {
     const res = await fetch('/api/data');
     const json = await res.json();
     if (json.success && json.data) {
-      state.settings = json.data.settings || {};
-      state.teams = json.data.teams || [];
-      state.attendance = json.data.attendance || [];
-      state.advances = json.data.advances || [];
+      let serverData = json.data;
+
+      // KIỂM TRA LOCALSTORAGE CỨU HỘ:
+      // Nếu máy chủ Cloud vừa restart và rỗng số liệu, nhưng điện thoại người dùng đã có đủ dữ liệu
+      try {
+        const localRaw = localStorage.getItem('hiree_chamcong_backup_v1');
+        if (localRaw) {
+          const localObj = JSON.parse(localRaw);
+          const localAttCount = (localObj.attendance || []).length;
+          const serverAttCount = (serverData.attendance || []).length;
+
+          if (localAttCount > serverAttCount) {
+            console.warn(`[Shield] LocalStorage có ${localAttCount} bản ghi > Server ${serverAttCount}. Đang tự động nạp lại lên Cloud...`);
+            showToast(`Đang tự động phục hồi ${localAttCount} ngày công từ máy của bạn lên Cloud...`, 'info');
+            await fetch('/api/backup/restore', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(localObj)
+            });
+            serverData = localObj;
+          }
+        }
+      } catch (shieldErr) {
+        console.warn('Lỗi kiểm tra Shield:', shieldErr);
+      }
+
+      state.settings = serverData.settings || {};
+      state.teams = serverData.teams || [];
+      state.attendance = serverData.attendance || [];
+      state.advances = serverData.advances || [];
+
+      // Cập nhật bản sao lưu cục bộ mới nhất
+      saveLocalBackup();
 
       // Hiển thị thông tin dự án
       if (state.settings.projectName) {
@@ -2318,6 +2363,7 @@ async function refreshData() {
       state.teams = json.data.teams || [];
       state.attendance = json.data.attendance || [];
       state.advances = json.data.advances || [];
+      saveLocalBackup();
       renderQuickAttendance();
     }
   } catch (err) {
