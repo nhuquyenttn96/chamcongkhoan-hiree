@@ -29,9 +29,24 @@ try {
 } catch (e) {}
 
 const TMP_DATA_FILE = path.join('/tmp', 'chamcong_data.json');
+const FIREBASE_DB_URL = 'https://web-cham-cong-2dfd8-default-rtdb.asia-southeast1.firebasedatabase.app/chamcong_hiree.json';
 
-// Đọc dữ liệu: Ưu tiên Cloud KV, fallback sang /tmp (Vercel) hoặc local JSON
+// Đọc dữ liệu: Ưu tiên Firebase Cloud vĩnh viễn, fallback Cloud KV, /tmp và local JSON
 async function readData() {
+  // 1. ƯU TIÊN SỐ 1: Firebase Realtime Database Cloud (Lưu trữ vĩnh viễn toàn cầu)
+  try {
+    const fbRes = await fetch(FIREBASE_DB_URL);
+    if (fbRes.ok) {
+      const fbData = await fbRes.json();
+      if (fbData && typeof fbData === 'object' && Array.isArray(fbData.attendance)) {
+        return fbData;
+      }
+    }
+  } catch (e) {
+    console.error('Lỗi đọc từ Firebase Cloud, thử nguồn dự phòng:', e.message);
+  }
+
+  // 2. Cloud KV nếu có
   const kvUrl = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
   const kvToken = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
 
@@ -49,7 +64,7 @@ async function readData() {
     }
   }
 
-  // Nếu trên Vercel, kiểm tra file trong /tmp trước
+  // 3. Nếu trên Vercel, kiểm tra file trong /tmp
   if (process.env.VERCEL && fs.existsSync(TMP_DATA_FILE)) {
     try {
       const raw = fs.readFileSync(TMP_DATA_FILE, 'utf8');
@@ -57,7 +72,7 @@ async function readData() {
     } catch (e) {}
   }
 
-  // Fallback đọc file local
+  // 4. Fallback đọc file local
   try {
     const filePath = fs.existsSync(DATA_FILE) ? DATA_FILE : path.join(__dirname, 'data', 'chamcong_data.json');
     if (fs.existsSync(filePath)) {
@@ -70,8 +85,22 @@ async function readData() {
   return { settings: { projectName: "Chấm công đội_HIREE" }, teams: [], attendance: [], advances: [] };
 }
 
-// Lưu dữ liệu: Ghi đồng thời lên Cloud KV, /tmp và local JSON
+// Lưu dữ liệu: Ghi đồng thời lên Firebase Cloud vĩnh viễn, Cloud KV, /tmp và local JSON
 async function saveData(data) {
+  const jsonString = JSON.stringify(data, null, 2);
+
+  // 1. Ghi thẳng lên Firebase Realtime Database Cloud (Bất tử 100%)
+  try {
+    await fetch(FIREBASE_DB_URL, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: jsonString
+    });
+  } catch (e) {
+    console.error('Lỗi ghi vào Firebase Cloud:', e.message);
+  }
+
+  // 2. Cloud KV nếu có
   const kvUrl = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
   const kvToken = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
 
@@ -90,16 +119,14 @@ async function saveData(data) {
     }
   }
 
-  const jsonString = JSON.stringify(data, null, 2);
-
-  // Nếu trên Vercel, ghi vào /tmp
+  // 3. Nếu trên Vercel, ghi vào /tmp
   if (process.env.VERCEL) {
     try {
       fs.writeFileSync(TMP_DATA_FILE, jsonString, 'utf8');
     } catch (e) {}
   }
 
-  // Ghi file local an toàn nếu có thể ghi đĩa
+  // 4. Ghi file local an toàn nếu có thể ghi đĩa
   try {
     const tempFile = `${DATA_FILE}.tmp`;
     fs.writeFileSync(tempFile, jsonString, 'utf8');
